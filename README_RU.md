@@ -128,6 +128,12 @@
 ~/Library/Application Support/HotSpot/StreamDock/plugins
 ```
 
+> ⚠️ **Важно:** Поскольку у плагина нет платной подписи Apple Developer ID, macOS помечает его как "карантинный". После копирования выполните в терминале:
+> ```bash
+> xattr -cr ~/Library/Application\ Support/HotSpot/StreamDock/plugins/com.judd1.yandex_music.sdPlugin
+> ```
+> Без этого плагин не запустится и вылетит ошибка "Файл повреждён".
+
 </details>
 
 ---

@@ -119,6 +119,12 @@ In Finder press `Cmd + Shift + G` and paste:
 ~/Library/Application Support/HotSpot/StreamDock/plugins
 ```
 
+> ⚠️ **Important:** Since the plugin is not signed with an Apple Developer ID, macOS puts it in quarantine. After copying, run this command in Terminal:
+> ```bash
+> xattr -cr ~/Library/Application\ Support/HotSpot/StreamDock/plugins/com.judd1.yandex_music.sdPlugin
+> ```
+> Without this, the plugin fail to start and show "App is damaged" error.
+
 </details>
 
 ---

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Yandex Music Settings</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/barraider/streamdeck-lib@master/sdpi.css">
+    <link rel="stylesheet" href="css/inspector.css">
+</head>
+<body>
+    <div class="sdpi-wrapper">
+        
+        <div id="control_mode_settings">
+             <div class="sdpi-item" type="group">
+                <div class="sdpi-item-label">Тип управления <span id="local_status_indicator" class="status-indicator">...</span></div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select">
+                        <div class="select-selected" id="control_mode_selected">Local</div>
+                        <div class="select-items select-hide" id="control_mode_items">
+                            <div data-value="local">Local (это устройство)</div>
+                            <div data-value="ynison">Ynison (удаленно)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+             <div class="sdpi-item">
+                <div class="sdpi-item-label"></div>
+                <div class="sdpi-item-value" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 10px; color: #888; max-width: 130px;" id="mode_description">
+                        Управление клиентом на этом компьютере
+                    </div>
+                    <button class="btn-secondary" id="btn_apply_all" onclick="applyModeToAll()">Применить ко всем</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="local_settings_group" class="hidden">
+            <div class="sdpi-item" type="input">
+                <div class="sdpi-item-label">Порт</div>
+                <input class="sdpi-item-value" id="local_port_input" type="text" inputmode="numeric" value="9222" placeholder="9222" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateLocalPort()">
+            </div>
+        </div>
+
+        <hr>
+
+        <div id="info_settings" class="hidden">
+            <div class="sdpi-item" type="checkbox" style="align-items: flex-start;">
+                <div class="sdpi-item-label">Отображаемые элементы</div>
+                <div class="sdpi-item-value" style="flex-direction: column;">
+                     <div class="sdpi-item-child">
+                        <input class="inp-cbx" id="chk_show_cover" type="checkbox" onchange="updateCheckbox('chk_show_cover', 'show_cover')">
+                        <label class="cbx" for="chk_show_cover">
+                            <span>
+                                <svg width="12px" height="10px" viewbox="0 0 12 10">
+                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                                </svg>
+                            </span>
+                            <span>Обложка</span>
+                        </label>
+                    </div>
+                    <div class="sdpi-item-child">
+                         <input class="inp-cbx" id="chk_show_title" type="checkbox" onchange="updateCheckbox('chk_show_title', 'show_title')">
+                         <label class="cbx" for="chk_show_title">
+                            <span>
+                                <svg width="12px" height="10px" viewbox="0 0 12 10">
+                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                                </svg>
+                            </span>
+                            <span>Название трека</span>
+                        </label>
+                    </div>
+                     <div class="sdpi-item-child">
+                         <input class="inp-cbx" id="chk_show_artist" type="checkbox" onchange="updateCheckbox('chk_show_artist', 'show_artist')">
+                         <label class="cbx" for="chk_show_artist">
+                            <span>
+                                <svg width="12px" height="10px" viewbox="0 0 12 10">
+                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                                </svg>
+                            </span>
+                            <span>Имя исполнителя</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="like_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="like_style_select">
+                        <div class="select-selected" id="like_style_selected">original</div>
+                        <div class="select-items select-hide" id="like_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v2_resize">version 2 (large)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="dislike_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="dislike_style_select">
+                        <div class="select-selected" id="dislike_style_selected">original</div>
+                        <div class="select-items select-hide" id="dislike_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="next_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="next_style_select">
+                        <div class="select-selected" id="next_style_selected">original</div>
+                        <div class="select-items select-hide" id="next_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="prev_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="prev_style_select">
+                        <div class="select-selected" id="prev_style_selected">original</div>
+                        <div class="select-items select-hide" id="prev_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="play_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="play_style_select">
+                        <div class="select-selected" id="play_style_selected">original</div>
+                        <div class="select-items select-hide" id="play_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="progress_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Формат отображения</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select">
+                        <div class="select-selected" id="progress_mode_selected">stacked (00:00 / 00:00)</div>
+                        <div class="select-items select-hide" id="progress_mode_items">
+                            <div data-value="stacked">stacked (00:00 / 00:00)</div>
+                            <div data-value="inline">inline (00:00 | 00:00)</div>
+                            <div data-value="current_only">current time only</div>
+                            <div data-value="total_only">total duration only</div>
+                            <div data-value="bar_cli">cli bar [███░░░]</div>
+                            <div data-value="bar_modern">modern bar (thin line)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="mute_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="mute_style_select">
+                        <div class="select-selected" id="mute_style_selected">original</div>
+                        <div class="select-items select-hide" id="mute_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="volume_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="volume_style_select">
+                        <div class="select-selected" id="volume_style_selected">original</div>
+                        <div class="select-items select-hide" id="volume_style_items">
+                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v2">version 2</div>
+                            <div data-value="v3">version 3</div>
+                            <div data-value="v4">version 4</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="token_settings_block" class="sdpi-item hidden" type="group" style="margin-top: 20px;">
+            <div class="sdpi-item-label">Аккаунт <span id="token_status_indicator" class="status-indicator">...</span></div>
+            <div class="sdpi-item-value">
+                <button class="btn-premium" onclick="openTokenPopup()">Обновить токен</button>
+                <div class="token-info">Нажмите, чтобы обновить сессию авторизации</div>
+            </div>
+        </div>
+
+        <div class="sdpi-item">
+            <div class="info" style="margin-left: 3px;">Настройки сохраняются сразу</div>
+        </div>
+    </div>
+
+    <script src="js/inspector.js"></script>
+</body>
+</html>

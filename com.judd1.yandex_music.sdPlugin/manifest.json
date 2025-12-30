@@ -1,0 +1,240 @@
+{
+    "Actions": [
+        {
+            "Icon": "static/img/yandex_music_play_pause",
+            "Name": "Play/Pause",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Play"
+                },
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Pause"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Play/Pause",
+            "UUID": "com.judd1.yandex_music.action.playpause"
+        },
+        {
+            "Icon": "static/img/yandex_music_next",
+            "Name": "Next Track",
+            "States": [
+                {
+                    "Image": "static/img/emptiness"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Next Track",
+            "UUID": "com.judd1.yandex_music.action.next"
+        },
+        {
+            "Icon": "static/img/yandex_music_prev",
+            "Name": "Previous Track",
+            "States": [
+                {
+                    "Image": "static/img/emptiness"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Previous Track",
+            "UUID": "com.judd1.yandex_music.action.prev"
+        },
+        {
+            "Icon": "static/img/yandex_music_info",
+            "Name": "Track Info",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "middle",
+                    "FontSize": "10"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Controllers": [
+                "Keypad",
+                "Information"
+            ],
+            "Tooltip": "Track Info",
+            "UUID": "com.judd1.yandex_music.action.info",
+            "Settings": {
+                "display_mode": "cover_title_artists"
+            }
+        },
+        {
+            "Icon": "static/img/yandex_music_like",
+            "Name": "Like",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Like"
+                },
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Unlike"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Controllers": [
+                "Keypad",
+                "Information"
+            ],
+            "Tooltip": "Toggle Like",
+            "UUID": "com.judd1.yandex_music.action.like"
+        },
+        {
+            "Icon": "static/img/yandex_music_dislike",
+            "Name": "Dislike",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Dislike"
+                },
+                {
+                    "Image": "static/img/emptiness",
+                    "Name": "Undislike"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Dislike Track",
+            "UUID": "com.judd1.yandex_music.action.dislike"
+        },
+        {
+            "Icon": "static/img/yandex_music_vol_up",
+            "Name": "Volume Up",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "bottom",
+                    "FontSize": "14"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Volume +5%",
+            "UUID": "com.judd1.yandex_music.action.volumeup"
+        },
+        {
+            "Icon": "static/img/yandex_music_vol_down",
+            "Name": "Volume Down",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "bottom",
+                    "FontSize": "14"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Tooltip": "Volume -5%",
+            "UUID": "com.judd1.yandex_music.action.volumedown"
+        },
+        {
+            "Icon": "static/img/yandex_music_vol_level",
+            "Name": "Volume Level",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "bottom",
+                    "FontSize": "14"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Controllers": [
+                "Keypad",
+                "Information"
+            ],
+            "Tooltip": "Current Volume",
+            "UUID": "com.judd1.yandex_music.action.volume_display"
+        },
+        {
+            "Icon": "static/img/yandex_music_vol_mute",
+            "Name": "Mute",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "bottom",
+                    "FontSize": "10"
+                },
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "bottom",
+                    "FontSize": "10"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Controllers": [
+                "Keypad",
+                "Information"
+            ],
+            "Tooltip": "Toggle Mute",
+            "UUID": "com.judd1.yandex_music.action.mute"
+        },
+        {
+            "Icon": "static/img/yandex_music_info",
+            "Name": "Progress Bar",
+            "States": [
+                {
+                    "Image": "static/img/emptiness",
+                    "TitleAlignment": "middle",
+                    "FontSize": "10"
+                }
+            ],
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "PropertyInspectorPath": "static/property_inspector.html",
+            "Controllers": [
+                "Keypad",
+                "Information"
+            ],
+            "Tooltip": "Track Progress Indicator",
+            "UUID": "com.judd1.yandex_music.action.progress",
+            "Settings": {
+                "progress_mode": "stacked"
+            }
+        }
+    ],
+    "Author": "judd1",
+    "Description": "Интеграция с Яндекс Музыкой. Управляйте воспроизведением и получайте актуальную информацию в реальном времени прямо на вашем Stream Deck. Требуется подписка Яндекс Плюс.\r\nПомощь и контакты: .",
+    "Name": "Интеграция с Яндекс Музыкой",
+    "Icon": "static/img/ym",
+    "Version": "1.0.0",
+    "SDKVersion": 2,
+    "CodePathMac": "run.sh",
+    "CodePathWin": "run.bat",
+    "Category": "Яндекс Музыка [judd1]",
+    "CategoryIcon": "static/img/ym",
+    "URL": "https://github.com/Judd1zzz/yandex-music-streamdeck",
+    "OS": [
+        {
+            "Platform": "mac",
+            "MinimumVersion": "10.11"
+        },
+        {
+            "Platform": "windows",
+            "MinimumVersion": "10"
+        }
+    ],
+    "Software": {
+        "MinimumVersion": "2.10.179.426"
+    }
+}

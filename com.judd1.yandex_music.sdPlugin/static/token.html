@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Настройка токена Яндекс Музыки</title>
+    <link rel="stylesheet" href="css/token.css">
+</head>
+<body>
+    <div class="card">
+        <h2>Аутентификация</h2>
+        
+        <input type="text" id="token" placeholder="Paste your token here..." autocomplete="off">
+        
+        <div id="status_msg" style="margin-bottom: 10px; font-weight: bold; text-align: center; height: 20px;"></div>
+        <button id="saveBtn" onclick="save()">Обновить токен</button>
+    </div>
+    
+    <div class="footer">Закрой окно после обновления</div>
+
+    <script src="js/token.js"></script>
+</body>
+</html>

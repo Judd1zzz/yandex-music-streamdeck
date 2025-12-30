@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+env/
+venv/
+.idea/
+.vscode/
+dist/
+build/
+*.spec
+*.zip
+backups/
+quick_remover.py
+.DS_Store

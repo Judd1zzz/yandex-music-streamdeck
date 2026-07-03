@@ -4,7 +4,7 @@
   <a href="README.md">🇬🇧 English</a> | <a href="README_RU.md">🇷🇺 Русский</a>
 </p>
 
-![](com.judd1.yandex_music.sdPlugin/static/img/main.png)
+![](assets/main.png)
 
 <p align="center">
   <b>Control Yandex Music directly from your Stream Deck</b><br>
@@ -19,9 +19,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Backend-Rust-CE412B?style=flat-square&logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/Stream%20Deck-Compatible-blueviolet?style=flat-square" alt="Stream Deck">
+</p>
+
+<p align="center">
+  <sub>An unofficial, fan-made project. Not affiliated with, endorsed by, or supported by Yandex or the Yandex Music service. All trademarks belong to their respective owners.</sub>
 </p>
 
 ---
@@ -56,6 +60,15 @@ This happens because Ajazz AKP153 is hardware-wise a clone of Mirabox StreamDock
 
 </details>
 
+<details>
+<summary><b>For owners of the Russian-market device</b></summary>
+
+The manual that ships with the device often lists links like `ajazz.key123.vip/RUSwin`. If the link ends with **RUS** — you'll download an outdated version of the software.
+
+Use the regular links without RUS. On first launch the software will offer to switch the language.
+
+</details>
+
 ---
 
 ## Features
@@ -69,6 +82,8 @@ This happens because Ajazz AKP153 is hardware-wise a clone of Mirabox StreamDock
 ### Volume
 - **Volume +/-** — adjust volume by 5% per click
 - **Volume indicator** — dedicated button showing current level
+- **Volume % inside the client** — the plugin draws the exact value above the Yandex Music slider
+- **Volume Knob (dials)** — on devices with rotary knobs (Ajazz/Mirabox like AKP05E Pro): rotate to change volume (configurable step, 5% per tick by default), press for Mute or Play/Pause (configurable). Play/Pause, Next/Prev, Like/Dislike, Mute and Download can also be assigned to a knob — pressing it triggers the action
 
 > **Long press:** smooth adjustment on button hold is implemented in code, but may not work on some Stream Deck alternatives. This appears to be a hardware limitation — the press event only fires when the button is released. On original Stream Deck it should work fine, but hasn't been tested yet.
 
@@ -76,12 +91,35 @@ This happens because Ajazz AKP153 is hardware-wise a clone of Mirabox StreamDock
 - **Cover + title + artist** — all on one button
 - **Scrolling text** — long titles automatically scroll
 - **Copy to clipboard** — click the cover button to copy "Artist - Track" to clipboard
-- **Progress bar** — shows remaining time in the track
+- **Progress bar** — shows track progress: elapsed time, duration or a bar — several styles to choose from
+
+### Discord Rich Presence
+- **Current track in your Discord profile** — "Listening" status with title, artist, cover art and progress
+- **Works out of the box** — one toggle in the settings, nothing to create
+- Want a custom status name/icon — paste your own `Application ID` (optional)
+
+### Download
+- **"Download Track" button** on Stream Deck — saves the current track to a file
+- **A button right inside the Yandex Music player** — the plugin adds a download button to the client's player bar, next to like
+- Formats: **Lossless (FLAC/M4A)** or **MP3 320**, with tags and cover art; folder and format are configurable
+
+### Auto-update (beta)
+- **Update check on startup** — new versions are pulled from GitHub automatically
+- The feature is new and hasn't been battle-tested yet. If an update doesn't come through — just download the latest release manually, like before: manual installation always works
+- Updates are downloaded and written by the plugin itself, so the one-time macOS `xattr` step from the install guide never needs repeating
 
 ### Technical Foundation
 - **Event-Driven architecture** — instant response, zero CPU load when idle
-- **Update-resistant** — `data-test-id` selectors instead of fragile CSS classes
-- **Standalone binary** — PyInstaller, no Python or Node.js required
+- **Update-resistant** — track state is read from the player's internal store, with DOM selectors (`data-test-id` + fallbacks) as a safety net
+- **Standalone binary** — Rust (`bin/ym-plugin`), no Python or Node.js runtime required
+
+---
+
+## What You'll Need
+
+- A **Yandex Plus** subscription — Yandex Music won't play without it
+- The **Yandex Music** desktop client (Windows or macOS) from [music.yandex.ru/download](https://music.yandex.ru/download/) — the old Microsoft Store version is not supported
+- A Stream Deck or an alternative (Mirabox/Ajazz) with **v2/v3** software
 
 ---
 
@@ -121,20 +159,28 @@ In Finder press `Cmd + Shift + G` and paste:
 > ```bash
 > xattr -cr ~/Library/Application\ Support/HotSpot/StreamDock/plugins/com.judd1.yandex_music.sdPlugin
 > ```
-> Without this, the plugin fail to start and show "App is damaged" error.
+> Without this, the plugin will fail to start with an "App is damaged" error.
+>
+> The quarantine mark never comes back on its own — not after a reboot, not after a macOS update. You'll only need this command again if you manually download and unpack a release archive from the browser. Auto-updates are unaffected: the plugin downloads and writes files itself, without the quarantine mark.
 
 </details>
 
 ---
 
-### 3. Launch Yandex Music client with debug flag
+### 3. Debug port — the plugin takes care of it
 
-This is crucial. The client must be launched with the `--remote-debugging-port=9222` parameter. Without it, the plugin won't be able to see the application.
+To control the client, the plugin talks to it through a debug port (`--remote-debugging-port=9222`). Yandex Music is an Electron app under the hood (essentially a browser), and this flag opens a local port through which the plugin can "see" the application and control it. The port is only accessible from your own computer (127.0.0.1).
 
-Why? Yandex Music client is an Electron app under the hood (essentially a browser). The debug flag opens a port through which the plugin can "communicate" with the app and control it.
+Previously you had to create special shortcuts for this. **Not anymore — the plugin handles the port itself:**
+
+- **Client running without the port?** The plugin will quietly restart it with the right flag. Takes a few seconds, and the client restores your track and queue on its own.
+- **Client not running at all?** Press any plugin button — the client will be launched with the port already enabled.
+- **Client installed in a non-standard location?** The plugin remembers the path as soon as it sees the client running. You can also set it manually: button settings → "Путь к клиенту".
+
+Don't want the plugin touching your client? Uncheck "Запускать/перезапускать клиент с портом отладки" in any button's settings and use the manual method below.
 
 <details>
-<summary><img src="https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white" alt="Windows" style="vertical-align: middle;"><b> — create a special shortcut</b></summary>
+<summary><img src="https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white" alt="Windows" style="vertical-align: middle;"><b> — manual method (optional): a special shortcut</b></summary>
 
 1. Find **Yandex Music** in the Start menu
 2. Right-click → **Open file location**
@@ -147,17 +193,17 @@ Why? Yandex Music client is an Electron app under the hood (essentially a browse
    
    It should look something like:
    ```
-   "C:\Users\...\Yandex Music.exe" --remote-debugging-port=9222
+   "C:\Users\...\Яндекс Музыка.exe" --remote-debugging-port=9222
    ```
 
 6. Click OK and pin this shortcut wherever convenient
 
-From now on, launch music **only through this shortcut**. Regular launch from Start menu won't work — this is important.
+From now on, launch music **only through this shortcut** (or just let the plugin restart the client for you).
 
 </details>
 
 <details>
-<summary><img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=F0F0F0" alt="macOS" style="vertical-align: middle;"> <b>— create a wrapper app</b></summary>
+<summary><img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=F0F0F0" alt="macOS" style="vertical-align: middle;"> <b>— manual method (optional): a wrapper app</b></summary>
 
 You could open Terminal every time and enter the command, but that gets old fast. Better to create a launcher app once.
 
@@ -166,10 +212,10 @@ You could open Terminal every time and enter the command, but that gets old fast
 1. Open **Script Editor** — find it via Spotlight
 2. Paste:
 ```applescript
-do shell script "open -a '/Applications/Yandex Music.app' --args --remote-debugging-port=9222"
+do shell script "open -a '/Applications/Яндекс Музыка.app' --args --remote-debugging-port=9222"
 ```
 
-If your app is named differently (e.g., "Яндекс Музыка.app"), adjust the path.
+If your app is named differently (e.g., "Yandex Music.app"), adjust the path.
 
 #### Export as application
 
@@ -186,7 +232,7 @@ Now a new launcher will appear in the Applications folder. Launch music through 
 
 The new app will have a default script icon. To restore the original Yandex Music logo:
 
-1. Find the original Yandex Music.app in Applications
+1. Find the original Яндекс Музыка.app in Applications
 2. `Cmd + I` → click on the icon in the top-left corner of the window → `Cmd + C`
 3. Find your Yandex Music Debug.app
 4. `Cmd + I` → click on the icon → `Cmd + V`
@@ -210,20 +256,32 @@ If the status shows "Connected" — everything works. If not — check that the 
 
 ## Settings
 
-Each button's settings panel allows you to change:
+Per button:
 
 | Parameter | Description |
 |-----------|-------------|
 | **Control type** | Local (PC client) or Ynison (cloud, beta) |
-| **Port** | Connection port to the client (default 9222) |
 | **Button style** | Appearance |
 | **Display elements** | What to show: cover, title, artist |
+| **Progress format** | Progress bar look: timestamps, bar, etc. |
+
+Global — set once, applies everywhere:
+
+| Parameter | Description |
+|-----------|-------------|
+| **Port** | Connection port to the client (default 9222) |
+| **Client autostart** | Plugin launches/restarts the client with the debug port itself (on by default) |
+| **Client path** | Only for non-standard installs; empty = auto-detection |
+| **Discord** | Rich Presence toggle; your own `Application ID` is optional |
+| **Download** | Folder and format: Lossless (FLAC/M4A) or MP3 320 |
 
 ---
 
 ## Ynison Mode (experimental)
 
 > ⚠️ **This is experimental stuff for those who like to tinker**
+
+> **Note about the Rust version:** full Ynison interaction hasn't been ported yet — the Rust module currently runs as a stub. If you specifically want to experiment with Ynison, use the Python version in [`python_deprecated/`](python_deprecated/) for now — its implementation is more complete. In this release, Ynison is even more "for enthusiasts" than before.
 
 Ynison is Yandex's internal protocol for playback synchronization between devices. In theory, it allows controlling music on your phone, Yandex.Station or TV directly from Stream Deck.
 
@@ -328,22 +386,22 @@ Local mode uses Chrome DevTools Protocol to control the Yandex Music client dire
 │                     │                     │       Yandex Music (Electron)         │
 │    Stream Deck      │                     │                                       │
 │      Plugin         │                     │   ┌───────────────────────────────┐   │
-│     (Python)        │      WebSocket      │   │       injected_api.js         │   │
+│      (Rust)         │      WebSocket      │   │       injected_api.js         │   │
 │                     │ ◀─────────────────▶ │   │   (injected script)           │   │
 │                     │  ws://localhost:    │   │                               │   │
-│  CDPMediaController │  .../devtools/page  │   │      window.sdNotify() ──────▶│───│──▶ Runtime.bindingCalled
+│  CdpController      │  .../devtools/page  │   │      window.sdNotify() ──────▶│───│──▶ Runtime.bindingCalled
 │                     │                     │   │      (callback)               │   │
 └─────────────────────┘                     │   └───────────────────────────────┘   │
          │                                  │                                       │
          │ HTTP GET                         │   CDP Debug Port :9222                │
          └─────────────────────────────────▶│   (--remote-debugging-port)           │
-           /json (get WS URL)               └───────────────────────────────────────┘
+           /json/list (get WS URL)          └───────────────────────────────────────┘
 ```
 
 #### Data Flow
 
 1. **Connection:**
-   - Plugin requests `http://localhost:9222/json` to get WebSocket URL
+   - Plugin requests `http://localhost:9222/json/list` to get WebSocket URL
    - Opens WebSocket connection to the page via CDP
    - Calls `Runtime.addBinding("sdNotify")` to register callback
 
@@ -359,56 +417,64 @@ Local mode uses Chrome DevTools Protocol to control the Yandex Music client dire
 
 4. **Sending commands:**
    - Plugin calls `Runtime.evaluate` with controller method
-   - For example: `_PyYMController.togglePlayPause()`
+   - For example: `_PyYMController.playPause()`
    - Script finds the right button and emulates click
 
 #### Plugin Components
 
-| File | Purpose |
-|------|---------|
-| `src/core/cdp.py` | Singleton `CDPMediaController`: connection, RPC, event handling |
-| `src/core/scripts/injected_api.js` | JS controller: DOM observation, delta updates, commands |
-| `src/core/schemas/states.py` | `dataclass(slots=True)`: `MediaState`, `TrackData`, `PlaybackData` — for speed |
-| `src/core/schemas/events.py` | Pydantic models for Stream Deck events (JSON validation needed) |
-| `src/actions/*.py` | Buttons: subscribe to events via `register_observer` |
+The backend is a Rust workspace in `com.judd1.yandex_music.sdPlugin/src/`:
+
+| Crate | Purpose |
+|-------|---------|
+| `crates/ym-cdp/` | CDP client: connection, RPC, event handling, script injection |
+| `crates/ym-cdp/assets/injected_api.js` | JS controller: reads player state, commands, **download button inside the client UI** |
+| `crates/ym-model/` | State models (`serde`): `MediaState`, `TrackData`, `PlaybackData` |
+| `crates/ym-core/` | Actions (buttons), orchestrator, event bus |
+| `crates/ym-render/` | Rendering of icons and dynamic buttons |
+
+> Previously the injected script worked "one-way" — it only read state and clicked buttons on the plugin's behalf. Now it also **augments the client's UI**: it adds a download button to the Yandex Music player bar, styled like the native buttons.
 
 #### Why It's Reliable
 
-- **`data-test-id` selectors** — stable between Yandex Music versions
-- **Fallback chains** — if main selector not found, try alternatives
+- **Reads from the player's internal store** — title, artist, cover, progress and volume come from the app's own state, not from fragile markup
+- **DOM fallbacks** — if the store is unavailable, multi-layer selectors (`data-test-id` + alternatives) take over
 - **Delta updates** — only changed fields are transmitted, not entire state
-- **Optimistic UI** — buttons update immediately on press
+- **Instant feedback** — the injected script pushes a state delta right after the action, so buttons update almost instantly
 - **Auto-reconnect** — plugin reconnects automatically on connection loss
 
 </details>
 
 ## For Developers
 
-### Local testing without building
+The backend is written in **Rust** (workspace in `com.judd1.yandex_music.sdPlugin/src/`). The
+previous Python backend is kept for reference/rollback in [`python_deprecated/`](python_deprecated/)
+and is no longer shipped. `injected_api.js` (injected into the Yandex Music page) is embedded into
+the binary at build time from `com.judd1.yandex_music.sdPlugin/src/crates/ym-cdp/assets/injected_api.js`.
 
-If you just want to test or poke around the code — building a binary isn't necessary. Just run the plugin via script:
-
-- **macOS**: `run.sh`
-- **Windows**: `run.bat`
-
-In `manifest.json`, specify the corresponding file in `CodePathMac` / `CodePathWin` fields.
-
-### Full build
+### Build
 
 ```bash
 git clone https://github.com/Judd1zzz/yandex-music-streamdeck.git
-cd yandex-music-streamdeck
+cd yandex-music-streamdeck/com.judd1.yandex_music.sdPlugin/src
 
-python -m venv env
-source env/bin/activate  # Windows: env\Scripts\activate
-
-pip install -r requirements.txt
-pip install pyinstaller
-
-python tools/build.py
+# Builds the release binary into the shipped package:
+#   ../bin/ym-plugin       (macOS universal2, via lipo)
+#   ../bin/ym-plugin.exe   (Windows — run on Windows)
+cargo run -p xtask -- dist
 ```
 
-The finished plugin will appear in `dist/com.judd1.yandex_music.sdPlugin`.
+`manifest.json` already points `CodePathMac` / `CodePathWin` at the binary. Builds are
+native per platform (macOS and Windows built separately).
+
+### Tests
+
+```bash
+cd com.judd1.yandex_music.sdPlugin/src
+cargo test --workspace        # Rust unit/integration tests
+cargo clippy --workspace      # lints
+
+cd crates/ym-cdp && npm test  # JS contract tests for injected_api.js (node + jsdom)
+```
 
 ---
 
@@ -416,10 +482,13 @@ The finished plugin will appear in `dist/com.judd1.yandex_music.sdPlugin`.
 
 | Symptom | Solution |
 |---------|----------|
-| Buttons don't respond | Check that the client is running with `--remote-debugging-port=9222` flag |
-| Endless "Loading..." | Port 9222 is probably occupied by something else, or client isn't running |
+| Buttons don't respond | Press any plugin button — the plugin will launch/restart the client with the right flag itself. If you disabled that toggle, check the client is running with `--remote-debugging-port=9222` |
+| Endless "Loading..." | Port 9222 is probably occupied by another app — set a different port in button settings, the plugin will restart the client with it |
+| Client in a non-standard folder | Set the path in button settings → "Путь к клиенту" |
 | Purple icons | Restart Stream Deck |
 | Long press doesn't work | Probably a limitation of your device (see "Volume" section) |
+| Discord status doesn't show up | Make sure Discord is running and the Rich Presence toggle is on |
+| Update didn't come through | Antivirus may have temporarily locked the files — the plugin retries and will finish the update on the next launch. If your AV flags the unsigned `ym-plugin.exe`, add the plugin folder to exclusions. Manual installation always works as a fallback |
 
 ---
 
@@ -431,5 +500,5 @@ MIT. Do whatever you want.
 
 ## Acknowledgments
 
-- **[Yandex-Music-Ajazz-Plugin](https://github.com/whxtelxs/Yandex-Music-Ajazz-Plugin)** — thanks to the author for the idea of using `--remote-debugging-port` to connect to the client via CDP.
+- **[Yandex-Music-Ajazz-Plugin](https://github.com/whxtelxs/Yandex-Music-Ajazz-Plugin)** — thanks for the idea of using `--remote-debugging-port` to connect to the client via CDP.
 - **[YandexMusicModPatcher](https://github.com/TheKing-OfTime/YandexMusicModPatcher)** — patch for Ynison support on desktop client.

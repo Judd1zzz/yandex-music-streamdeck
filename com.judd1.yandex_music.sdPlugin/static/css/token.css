@@ -57,3 +57,10 @@ button {
 }
 button:hover { background: #FFC800; }
 .footer { margin-top: 20px; font-size: 11px; color: #53535f; }
+
+.status-msg {
+    margin-bottom: 10px;
+    font-weight: bold;
+    text-align: center;
+    height: 20px;
+}

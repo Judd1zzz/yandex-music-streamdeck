@@ -1,0 +1,19 @@
+[package]
+name = "ym-launch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ym-model.workspace = true
+tokio = { workspace = true, features = ["process"] }
+sysinfo.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["process", "test-util"] }

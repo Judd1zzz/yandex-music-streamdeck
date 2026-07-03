@@ -8,14 +8,14 @@
 <body>
     <div class="card">
         <h2>Аутентификация</h2>
-        
-        <input type="text" id="token" placeholder="Paste your token here..." autocomplete="off">
-        
-        <div id="status_msg" style="margin-bottom: 10px; font-weight: bold; text-align: center; height: 20px;"></div>
+
+        <input type="text" id="token" placeholder="Вставьте токен сюда..." autocomplete="off">
+
+        <div id="status_msg" class="status-msg"></div>
         <button id="saveBtn" onclick="save()">Обновить токен</button>
     </div>
-    
-    <div class="footer">Закрой окно после обновления</div>
+
+    <div class="footer">Для проверки токена нужен запущенный локальный API-сервер (api_for_plugin)</div>
 
     <script src="js/token.js"></script>
 </body>

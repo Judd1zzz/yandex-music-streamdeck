@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sd-protocol",
+    "crates/sd-host",
+    "crates/ym-model",
+    "crates/ym-render",
+    "crates/ym-cdp",
+    "crates/ym-ynison",
+    "crates/ym-discord",
+    "crates/ym-download",
+    "crates/ym-update",
+    "crates/ym-launch",
+    "crates/ym-core",
+    "crates/ym-plugin",
+    "xtask",
+]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+thiserror = "2"
+anyhow = "1"
+bitflags = "2"
+sysinfo = "0.33"
+file-rotate = "0.7"
+base64 = "0.22"
+lru = "0.12"
+rust-embed = "8"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ab_glyph = "0.2"
+arboard = { version = "3", default-features = false }
+discord-rich-presence = "0.2"
+hmac = "0.12"
+sha2 = "0.10"
+aes = "0.8"
+ctr = "0.9"
+lofty = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+semver = "1"
+self-replace = "1"
+
+# Workspace-internal crates
+sd-protocol = { path = "crates/sd-protocol" }
+sd-host = { path = "crates/sd-host" }
+ym-model = { path = "crates/ym-model" }
+ym-render = { path = "crates/ym-render" }
+ym-cdp = { path = "crates/ym-cdp" }
+ym-ynison = { path = "crates/ym-ynison" }
+ym-discord = { path = "crates/ym-discord" }
+ym-download = { path = "crates/ym-download" }
+ym-update = { path = "crates/ym-update" }
+ym-launch = { path = "crates/ym-launch" }
+ym-core = { path = "crates/ym-core" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

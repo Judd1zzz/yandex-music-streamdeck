@@ -1,0 +1,254 @@
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { JSDOM } from 'jsdom';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const STATIC = join(here, '..', '..', '..', '..', 'static');
+const PI_HTML = readFileSync(join(STATIC, 'property_inspector.html'), 'utf8');
+const PI_JS = readFileSync(join(STATIC, 'js', 'inspector.js'), 'utf8');
+const TOKEN_HTML = readFileSync(join(STATIC, 'token.html'), 'utf8');
+
+const PLUGIN_UUID = 'PLUGIN-UUID';
+const PI_UUID = 'PI-UUID';
+
+function setup() {
+  const dom = new JSDOM(PI_HTML, { runScripts: 'outside-only', pretendToBeVisual: true });
+  const { window } = dom;
+  const sockets = [];
+  class MockWS {
+    constructor(url) { this.url = url; this.readyState = 1; this.sent = []; sockets.push(this); }
+    send(s) { this.sent.push(JSON.parse(s)); }
+    close() {}
+  }
+  window.WebSocket = MockWS;
+  window.alert = () => {};
+  window.eval(PI_JS);
+  return { window, dom, sockets };
+}
+
+function connect(window) {
+  const info = JSON.stringify({ pluginUUID: PLUGIN_UUID });
+  const actionInfo = JSON.stringify({ action: 'com.judd1.yandex_music.action.like', payload: { settings: {} } });
+  window.connectElgatoStreamDeckSocket(123, PI_UUID, 'registerPropertyInspector', info, actionInfo);
+}
+
+describe('PI: автономность и надёжность', () => {
+  test('никаких внешних ресурсов в разметке (PI и окно токена)', () => {
+    const external = /(?:href|src)="https?:\/\//;
+    assert.ok(!external.test(PI_HTML), 'property_inspector.html не должен грузить ресурсы из сети');
+    assert.ok(!external.test(TOKEN_HTML), 'token.html не должен грузить ресурсы из сети');
+  });
+
+  test('защита глобальных настроек не снимается таймером (регрессия потери токена)', async () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    await new Promise((r) => setTimeout(r, 1700));
+    window.document.getElementById('discord_app_id_input').value = '111';
+    window.updateDiscordAppId();
+    const sent = ws.sent.filter((m) => m.event === 'setGlobalSettings');
+    assert.equal(sent.length, 0, 'без didReceiveGlobalSettings сохранение должно быть заблокировано всегда');
+  });
+
+  test('applyModeToAll: тост вместо alert', () => {
+    const { window, sockets } = setup();
+    let alerts = 0;
+    window.alert = () => { alerts += 1; };
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    window.applyModeToAll();
+    const toast = window.document.getElementById('pi_toast');
+    assert.ok(!toast.classList.contains('hidden'), 'тост должен показаться');
+    assert.equal(toast.textContent, 'Режим применён ко всем кнопкам');
+    assert.equal(alerts, 0, 'alert больше не используется');
+  });
+
+  test('глобальный селект: клик по download_format пишет в setGlobalSettings без потери соседних полей', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    ws.onmessage({ data: JSON.stringify({ event: 'didReceiveGlobalSettings', payload: { settings: { token: 'T', download_format: 'lossless' } } }) });
+
+    window.document.querySelector('#download_format_items div[data-value="mp3"]').click();
+
+    const sent = ws.sent.filter((m) => m.event === 'setGlobalSettings');
+    assert.equal(sent.length, 1, 'клик по опции должен сохранить глобальные настройки');
+    assert.equal(sent[0].payload.download_format, 'mp3');
+    assert.equal(sent[0].payload.token, 'T', 'соседние глобальные поля не должны теряться');
+    assert.equal(
+      window.document.getElementById('download_format_selected').textContent,
+      'MP3 320',
+      'подпись селекта должна обновиться'
+    );
+  });
+
+  test('updateLocalPort: clamp в диапазон 1-65535, мусор → 9222, уходит числом', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    ws.onmessage({ data: JSON.stringify({ event: 'didReceiveGlobalSettings', payload: { settings: { token: 'T' } } }) });
+
+    const input = window.document.getElementById('local_port_input');
+    const cases = [
+      ['', 9222],
+      ['0', 9222],
+      ['99999', 9222],
+      ['abc', 9222],
+      ['9333', 9333],
+    ];
+    for (const [raw, expected] of cases) {
+      input.value = raw;
+      window.updateLocalPort();
+      assert.equal(input.value, String(expected), `input для "${raw}"`);
+      const last = ws.sent.filter((m) => m.event === 'setGlobalSettings').at(-1);
+      assert.strictEqual(last.payload.local_port, expected, `payload для "${raw}"`);
+      assert.equal(last.payload.token, 'T', 'остальные глобальные поля не затёрты');
+    }
+  });
+});
+
+describe('Ynison: предупреждение при переключении режима', () => {
+  function openPi() {
+    const env = setup();
+    connect(env.window);
+    const ws = env.sockets[0];
+    ws.onopen();
+    return { ...env, ws };
+  }
+  const modal = (window) => window.document.getElementById('ynison_modal');
+  const option = (window, value) =>
+    window.document.querySelector(`#control_mode_items div[data-value="${value}"]`);
+  const modeSaves = (ws) =>
+    ws.sent.filter((m) => m.event === 'setSettings' && m.payload.control_mode === 'ynison');
+
+  test('клик по ynison открывает модалку и НЕ применяет режим', () => {
+    const { window, ws } = openPi();
+    const label = window.document.getElementById('control_mode_selected');
+    const before = label.textContent;
+    option(window, 'ynison').click();
+    assert.ok(!modal(window).classList.contains('hidden'), 'модалка должна показаться');
+    assert.equal(modeSaves(ws).length, 0, 'setSettings с ynison не должен уходить до подтверждения');
+    assert.notEqual(window.settings.control_mode, 'ynison');
+    assert.equal(label.textContent, before, 'текст селекта не должен меняться до подтверждения');
+  });
+
+  test('«Отмена» закрывает модалку, режим остаётся прежним', () => {
+    const { window, ws } = openPi();
+    option(window, 'ynison').click();
+    window.document.getElementById('ynison_cancel').click();
+    assert.ok(modal(window).classList.contains('hidden'));
+    assert.equal(modeSaves(ws).length, 0);
+    assert.notEqual(window.settings.control_mode, 'ynison');
+  });
+
+  test('«Я осознаю» применяет ynison: сохранение + переключение UI', () => {
+    const { window, ws } = openPi();
+    option(window, 'ynison').click();
+    window.document.getElementById('ynison_confirm').click();
+    assert.ok(modal(window).classList.contains('hidden'));
+    assert.equal(modeSaves(ws).length, 1);
+    assert.equal(window.settings.control_mode, 'ynison');
+    assert.ok(!window.document.getElementById('token_settings_block').classList.contains('hidden'));
+    assert.ok(window.document.getElementById('local_settings_group').classList.contains('hidden'));
+  });
+
+  test('переключение обратно на local — без модалки, применяется сразу', () => {
+    const { window, ws } = openPi();
+    option(window, 'ynison').click();
+    window.document.getElementById('ynison_confirm').click();
+    option(window, 'local').click();
+    assert.ok(modal(window).classList.contains('hidden'));
+    assert.equal(window.settings.control_mode, 'local');
+    const localSaves = ws.sent.filter(
+      (m) => m.event === 'setSettings' && m.payload.control_mode === 'local'
+    );
+    assert.ok(localSaves.length >= 1);
+  });
+
+  test('клик по ynison, когда режим уже ynison — без модалки', () => {
+    const { window } = openPi();
+    option(window, 'ynison').click();
+    window.document.getElementById('ynison_confirm').click();
+    option(window, 'ynison').click();
+    assert.ok(modal(window).classList.contains('hidden'), 'повторный выбор не должен спрашивать');
+  });
+
+  test('Esc закрывает модалку без применения, фокус — на «Отмена»', () => {
+    const { window, ws } = openPi();
+    option(window, 'ynison').click();
+    assert.equal(
+      window.document.activeElement,
+      window.document.getElementById('ynison_cancel'),
+      'фокус должен встать на «Отмена»'
+    );
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.ok(modal(window).classList.contains('hidden'), 'Esc должен закрыть модалку');
+    assert.equal(modeSaves(ws).length, 0);
+    assert.notEqual(window.settings.control_mode, 'ynison');
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.ok(modal(window).classList.contains('hidden'), 'повторный Esc безвреден');
+  });
+
+  test('после отмены модалку можно открыть снова', () => {
+    const { window, ws } = openPi();
+    option(window, 'ynison').click();
+    window.document.getElementById('ynison_cancel').click();
+    option(window, 'ynison').click();
+    assert.ok(!modal(window).classList.contains('hidden'));
+    window.document.getElementById('ynison_confirm').click();
+    assert.equal(modeSaves(ws).length, 1);
+    assert.equal(window.settings.control_mode, 'ynison');
+  });
+});
+
+describe('Property Inspector: global settings (StreamDock context)', () => {
+  test('getGlobalSettings шлётся с context: uuid (PI), а НЕ pluginUUID', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    const ggs = ws.sent.find((m) => m.event === 'getGlobalSettings');
+    assert.ok(ggs, 'должен быть getGlobalSettings');
+    assert.equal(ggs.context, PI_UUID);
+    assert.notEqual(ggs.context, PLUGIN_UUID);
+  });
+
+  test('saveGlobalSettings заблокирован до didReceiveGlobalSettings (нет частичного payload)', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    window.document.getElementById('discord_app_id_input').value = '111';
+    window.updateDiscordAppId();
+    const sent = ws.sent.filter((m) => m.event === 'setGlobalSettings');
+    assert.equal(sent.length, 0, 'guard globalsReady должен блокировать сохранение до сидинга');
+  });
+
+  test('после didReceiveGlobalSettings: setGlobalSettings шлёт context: uuid и ПОЛНЫЙ объект', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    ws.onmessage({ data: JSON.stringify({ event: 'didReceiveGlobalSettings', payload: { settings: { discord_app_id: '111', download_format: 'mp3' } } }) });
+
+    window.document.getElementById('chk_discord_rpc').checked = true;
+    window.updateDiscordEnabled();
+
+    const sent = ws.sent.filter((m) => m.event === 'setGlobalSettings');
+    assert.equal(sent.length, 1);
+    const msg = sent[0];
+    assert.equal(msg.context, PI_UUID);
+    assert.notEqual(msg.context, PLUGIN_UUID);
+    // ничего не затёрто — поля seed'а сохранены вместе с новым
+    assert.equal(msg.payload.discord_app_id, '111');
+    assert.equal(msg.payload.download_format, 'mp3');
+    assert.equal(msg.payload.discord_rpc_enabled, true);
+  });
+});

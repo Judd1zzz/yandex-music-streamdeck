@@ -1,0 +1,21 @@
+[package]
+name = "ym-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sd-protocol.workspace = true
+ym-model.workspace = true
+ym-render.workspace = true
+tokio = { workspace = true }
+tokio-util.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+bitflags.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+arboard.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,30 @@
+[package]
+name = "ym-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ym-plugin"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sysinfo.workspace = true
+file-rotate.workspace = true
+anyhow.workspace = true
+sd-host.workspace = true
+ym-core.workspace = true
+ym-cdp.workspace = true
+ym-discord.workspace = true
+ym-download.workspace = true
+ym-update.workspace = true
+ym-launch.workspace = true
+ym-render.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

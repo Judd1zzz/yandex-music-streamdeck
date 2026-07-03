@@ -1,0 +1,12 @@
+[package]
+name = "ym-discord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ym-model.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+discord-rich-presence.workspace = true

@@ -4,6 +4,17 @@ var actionInfo = null;
 var pluginUUID = null;
 var settings = {};
 var globalSettings = {};
+var globalsReady = false;
+var toastTimer = null;
+
+function showToast(text) {
+    const el = document.getElementById("pi_toast");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove("hidden");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function() { el.classList.add("hidden"); }, 2500);
+}
 
 function openTokenPopup() {
     const url = 'token.html';
@@ -15,12 +26,45 @@ function openTokenPopup() {
 window.updateToken = function(newToken) {
     globalSettings.token = newToken;
     saveGlobalSettings();
-    alert("Token updated successfully!");
+    showToast("Токен сохранён");
 };
 
 function updateLocalPort() {
-    const val = document.getElementById("local_port_input").value;
-    globalSettings.local_port = val;
+    const input = document.getElementById("local_port_input");
+    let port = parseInt(input.value, 10);
+    if (!port || port < 1 || port > 65535) port = 9222;
+    input.value = port;
+    globalSettings.local_port = port;
+    saveGlobalSettings();
+}
+
+function updateKnobStep() {
+    const input = document.getElementById("knob_step_input");
+    let step = parseInt(input.value, 10);
+    if (!step || step < 1) step = 5;
+    if (step > 20) step = 20;
+    input.value = step;
+    settings.knob_step = step;
+    updateSettings();
+}
+
+function updateClientAutofix() {
+    globalSettings.client_autofix_enabled = document.getElementById("chk_client_autofix").checked;
+    saveGlobalSettings();
+}
+
+function updateClientPath() {
+    globalSettings.client_exe_path = document.getElementById("client_path_input").value;
+    saveGlobalSettings();
+}
+
+function updateDiscordEnabled() {
+    globalSettings.discord_rpc_enabled = document.getElementById("chk_discord_rpc").checked;
+    saveGlobalSettings();
+}
+
+function updateDiscordAppId() {
+    globalSettings.discord_app_id = document.getElementById("discord_app_id_input").value;
     saveGlobalSettings();
 }
 
@@ -28,6 +72,11 @@ function updateCheckbox(id, settingKey) {
      const val = document.getElementById(id).checked;
      settings[settingKey] = val;
      updateSettings();
+}
+
+function updateDownloadPath() {
+    globalSettings.download_path = document.getElementById("download_path_input").value;
+    saveGlobalSettings();
 }
 
 function applyModeToAll() {
@@ -43,7 +92,9 @@ function applyModeToAll() {
             }
         };
         websocket.send(JSON.stringify(json));
-        alert("Mode applied to all buttons active in this session.");
+        showToast("Режим применён ко всем кнопкам");
+    } else {
+        showToast("Нет связи с плагином");
     }
 }
 
@@ -65,9 +116,10 @@ function updateModeUI(mode) {
     }
 }
 
-function initCustomSelect(selectedId, itemsId, settingKey, callback) {
+function initSelect(selectedId, itemsId, write, callback, guard) {
     const selected = document.getElementById(selectedId);
     const items = document.getElementById(itemsId);
+    if (!selected || !items) return;
     const options = items.querySelectorAll("div");
 
     selected.addEventListener("click", function(e) {
@@ -80,18 +132,78 @@ function initCustomSelect(selectedId, itemsId, settingKey, callback) {
     options.forEach(option => {
         option.addEventListener("click", function() {
             const val = this.getAttribute("data-value");
-            selected.innerText = this.innerText;
-            settings[settingKey] = val;
-            
-            options.forEach(opt => opt.classList.remove("same-as-selected"));
-            this.classList.add("same-as-selected");
-            
-            updateSettings();
+            const clicked = this;
             items.classList.add("select-hide");
             selected.classList.remove("select-arrow-active");
-            
-            if (callback) callback(val);
+
+            const apply = function() {
+                selected.textContent = clicked.textContent;
+                options.forEach(opt => opt.classList.remove("same-as-selected"));
+                clicked.classList.add("same-as-selected");
+                write(val);
+                if (callback) callback(val);
+            };
+
+            if (guard && !guard(val, apply)) return;
+            apply();
         });
+    });
+}
+
+function initCustomSelect(selectedId, itemsId, settingKey, callback, guard) {
+    initSelect(selectedId, itemsId, function(val) {
+        settings[settingKey] = val;
+        updateSettings();
+    }, callback, guard);
+}
+
+function ynisonGuard(val, apply) {
+    if (val !== "ynison" || settings.control_mode === "ynison") return true;
+    showYnisonModal(apply);
+    return false;
+}
+
+function showYnisonModal(onConfirm) {
+    const modal = document.getElementById("ynison_modal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    const close = function() {
+        modal.classList.add("hidden");
+        document.removeEventListener("keydown", onKey);
+    };
+    const onKey = function(e) {
+        if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    const cancel = document.getElementById("ynison_cancel");
+    cancel.onclick = close;
+    cancel.focus();
+    document.getElementById("ynison_confirm").onclick = function() {
+        close();
+        onConfirm();
+    };
+}
+
+function initGlobalSelect(selectedId, itemsId, globalKey) {
+    initSelect(selectedId, itemsId, function(val) {
+        globalSettings[globalKey] = val;
+        saveGlobalSettings();
+    });
+}
+
+function syncGlobalSelect(globalKey, itemsId, selectedId) {
+    const val = globalSettings[globalKey];
+    if (!val) return;
+    const items = document.getElementById(itemsId);
+    if (!items) return;
+    const options = items.querySelectorAll("div");
+    options.forEach(opt => {
+        if (opt.getAttribute("data-value") === val) {
+            const sel = document.getElementById(selectedId);
+            if (sel) sel.innerText = opt.innerText;
+            options.forEach(o => o.classList.remove("same-as-selected"));
+            opt.classList.add("same-as-selected");
+        }
     });
 }
 
@@ -128,12 +240,18 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
 
         var jsonGlobal = {
             "event": "getGlobalSettings",
-            "context": pluginUUID
+            "context": uuid
         };
         websocket.send(JSON.stringify(jsonGlobal));
+        setTimeout(function() {
+            if (!globalsReady && websocket && websocket.readyState === 1) {
+                websocket.send(JSON.stringify(jsonGlobal));
+            }
+        }, 2000);
         
-        initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI);
-        
+        initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI, ynisonGuard);
+        initGlobalSelect("download_format_selected", "download_format_items", "download_format");
+
         const action = actionInfo.action;
         if (action === "com.judd1.yandex_music.action.info") {
             document.getElementById('info_settings').classList.remove('hidden');
@@ -158,11 +276,19 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         } else if (action === "com.judd1.yandex_music.action.mute") {
             document.getElementById('mute_settings').classList.remove('hidden');
             initCustomSelect("mute_style_selected", "mute_style_items", "mute_style");
-        } else if (action === "com.judd1.yandex_music.action.volumeup" || 
-                   action === "com.judd1.yandex_music.action.volumedown" || 
+        } else if (action === "com.judd1.yandex_music.action.volumeup" ||
+                   action === "com.judd1.yandex_music.action.volumedown" ||
                    action === "com.judd1.yandex_music.action.volume_display") {
             document.getElementById('volume_settings').classList.remove('hidden');
             initCustomSelect("volume_style_selected", "volume_style_items", "volume_style");
+        } else if (action === "com.judd1.yandex_music.action.volume_knob") {
+            document.getElementById('knob_settings').classList.remove('hidden');
+            document.getElementById('volume_settings').classList.remove('hidden');
+            initCustomSelect("knob_press_selected", "knob_press_items", "knob_press");
+            initCustomSelect("volume_style_selected", "volume_style_items", "volume_style");
+        } else if (action === "com.judd1.yandex_music.action.download") {
+            document.getElementById('download_settings').classList.remove('hidden');
+            initCustomSelect("download_style_selected", "download_style_items", "download_style");
         }
 
         if (actionInfo.payload.settings) {
@@ -182,10 +308,22 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
             syncUIRomSettings();
             updateModeUI(settings.control_mode);
         } else if (jsonObj.event === 'didReceiveGlobalSettings') {
-            globalSettings = jsonObj.payload.settings;
+            globalSettings = jsonObj.payload.settings || {};
+            globalsReady = true;
             if (globalSettings.local_port) {
                 document.getElementById("local_port_input").value = globalSettings.local_port;
             }
+            const autofixChk = document.getElementById("chk_client_autofix");
+            if (autofixChk) autofixChk.checked = globalSettings.client_autofix_enabled !== false;
+            const clientPath = document.getElementById("client_path_input");
+            if (clientPath && typeof globalSettings.client_exe_path === "string") clientPath.value = globalSettings.client_exe_path;
+            const discordChk = document.getElementById("chk_discord_rpc");
+            if (discordChk) discordChk.checked = globalSettings.discord_rpc_enabled === true;
+            const discordApp = document.getElementById("discord_app_id_input");
+            if (discordApp && globalSettings.discord_app_id) discordApp.value = globalSettings.discord_app_id;
+            const dlPath = document.getElementById("download_path_input");
+            if (dlPath && typeof globalSettings.download_path === "string") dlPath.value = globalSettings.download_path;
+            syncGlobalSelect("download_format", "download_format_items", "download_format_selected");
         } else if (jsonObj.event === 'sendToPropertyInspector') {
             var payload = jsonObj.payload;
             if (payload.event === "TokenStatus") {
@@ -258,7 +396,12 @@ function syncUIRomSettings() {
     syncSelect("control_mode", "control_mode_items", "control_mode_selected");
     syncSelect("mute_style", "mute_style_items", "mute_style_selected");
     syncSelect("volume_style", "volume_style_items", "volume_style_selected");
-    
+    syncSelect("download_style", "download_style_items", "download_style_selected");
+    syncSelect("knob_press", "knob_press_items", "knob_press_selected");
+
+    const knobStep = document.getElementById("knob_step_input");
+    if (knobStep && settings.knob_step !== undefined) knobStep.value = settings.knob_step;
+
     syncCheck("show_cover", "chk_show_cover");
     syncCheck("show_title", "chk_show_title");
     syncCheck("show_artist", "chk_show_artist");
@@ -276,6 +419,7 @@ function updateSettings() {
 }
 
 function saveGlobalSettings() {
+    if (!globalsReady) return;
     if (websocket && websocket.readyState === 1) {
         var json = {
             "event": "setGlobalSettings",

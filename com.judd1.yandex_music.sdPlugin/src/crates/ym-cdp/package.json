@@ -1,0 +1,12 @@
+{
+  "name": "ym-streamdeck-injected",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dev-only test harness for the injected Yandex Music controller (injected_api.js). Not bundled into the plugin build.",
+  "scripts": {
+    "test": "node --test \"tests_js/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

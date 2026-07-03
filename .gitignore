@@ -9,3 +9,11 @@ build/
 *.spec
 *.zip
 .DS_Store
+node_modules/
+package-lock.json
+
+com.judd1.yandex_music.sdPlugin/bin/*
+!com.judd1.yandex_music.sdPlugin/bin/ffmpeg
+!com.judd1.yandex_music.sdPlugin/bin/ffmpeg.exe
+
+release/

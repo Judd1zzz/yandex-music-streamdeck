@@ -34,6 +34,7 @@ pub fn interest_of(kind: StateKind) -> Interests {
         StateKind::Dislike => Interests::DISLIKE,
         StateKind::Volume => Interests::VOLUME,
         StateKind::Download => Interests::DOWNLOAD,
+        StateKind::LaunchHint => Interests::CONNECTION,
     }
 }
 
@@ -49,8 +50,30 @@ pub struct Shared {
     launch: watch::Sender<LaunchConfig>,
     any_local: Arc<AtomicBool>,
     launch_kick: RwLock<Option<mpsc::Sender<()>>>,
+    launch_reason: RwLock<Option<String>>,
+    path_checker: RwLock<Option<ClientPathChecker>>,
     download: RwLock<(String, String)>,
     active_downloads: AtomicUsize,
+}
+
+pub type ClientPathChecker = Arc<dyn Fn(&str) -> ClientPathReport + Send + Sync>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientPathReport {
+    pub verdict: &'static str,
+    pub resolved: Option<String>,
+    pub expected: &'static str,
+}
+
+impl ClientPathReport {
+    pub fn payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "event": "ClientPathCheck",
+            "verdict": self.verdict,
+            "resolved": self.resolved,
+            "expected": self.expected,
+        })
+    }
 }
 
 impl Shared {
@@ -79,6 +102,8 @@ impl Shared {
             launch,
             any_local: Arc::new(AtomicBool::new(false)),
             launch_kick: RwLock::new(None),
+            launch_reason: RwLock::new(None),
+            path_checker: RwLock::new(None),
             download: RwLock::new((String::new(), "lossless".to_owned())),
             active_downloads: AtomicUsize::new(0),
         })
@@ -123,6 +148,29 @@ impl Shared {
         if let Some(tx) = self.launch_kick.read().expect("launch kick lock").as_ref() {
             let _ = tx.try_send(());
         }
+    }
+    pub fn launch_reason(&self) -> Option<String> {
+        self.launch_reason.read().expect("launch reason lock").clone()
+    }
+    pub fn set_launch_reason(&self, v: Option<String>) -> bool {
+        let mut g = self.launch_reason.write().expect("launch reason lock");
+        if *g == v {
+            return false;
+        }
+        *g = v;
+        true
+    }
+    pub fn apply_launch_reason(&self, v: Option<String>) {
+        if self.set_launch_reason(v) {
+            self.publish(StateEvent::LaunchHint);
+        }
+    }
+    pub fn set_client_path_checker(&self, f: ClientPathChecker) {
+        *self.path_checker.write().expect("path checker lock") = Some(f);
+    }
+    pub fn check_client_path(&self, raw: &str) -> Option<ClientPathReport> {
+        let g = self.path_checker.read().expect("path checker lock");
+        g.as_ref().map(|f| f(raw))
     }
     pub fn set_download_config(&self, path: String, format: String) {
         *self.download.write().expect("download lock") = (path, format);
@@ -215,7 +263,8 @@ impl ActionCtx {
         self.send_to_pi(sd_protocol::token_status_payload(s)).await;
     }
     pub async fn send_local_status(&self, s: LocalStatus) {
-        self.send_to_pi(sd_protocol::local_status_payload(s)).await;
+        let reason = self.shared.launch_reason();
+        self.send_to_pi(sd_protocol::local_status_payload(s, reason.as_deref())).await;
     }
 
     pub async fn report_status(&self) {

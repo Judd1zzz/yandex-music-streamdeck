@@ -1,5 +1,8 @@
+pub mod convert;
 pub mod crypto;
-pub mod ffmpeg;
+pub mod decode;
+pub mod flac_remux;
+pub mod mp3_encode;
 pub mod naming;
 pub mod sign;
 pub mod tag;
@@ -167,15 +170,11 @@ async fn download_track_with_base(base: &str, track_id: &str, token: &str, dest_
         crypto::decrypt_ctr(&info.key, &mut bytes).map_err(|e| anyhow!("decrypt: {e}"))?;
     }
 
-    let ext = if mp3 { "mp3".to_owned() } else { naming::ext_from_codec(&info.codec) };
+    let work = make_workdir(track_id)?;
+    let out = convert::process(bytes, &info.codec, mp3, &work).await?;
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("bin").to_owned();
     let artists = naming::artists_to_string(&meta.artists);
     let filename = naming::track_filename(&artists, &meta.title, &ext);
-
-    let work = make_workdir(track_id)?;
-    let raw = work.join("raw");
-    tokio::fs::write(&raw, &bytes).await?;
-    let out = work.join(format!("out.{ext}"));
-    ffmpeg::convert(&raw, &out, mp3).await.map_err(|e| anyhow!(e))?;
 
     let cover = fetch_cover(&client, meta.cover_uri.as_deref()).await;
     let tags = tag::TrackTags {

@@ -21,6 +21,7 @@
                     </div>
                 </div>
             </div>
+            <div class="pi-hint pi-status-reason hidden" id="local_status_reason"></div>
              <div class="sdpi-item">
                                 <div class="sdpi-item-value pi-row-spread">
                     <div class="pi-hint pi-hint-narrow" id="mode_description">
@@ -54,8 +55,9 @@
             </div>
             <div class="sdpi-item" type="input">
                 <div class="sdpi-item-label">Путь к клиенту</div>
-                <input class="sdpi-item-value" id="client_path_input" type="text" placeholder="Пусто — автоопределение" onchange="updateClientPath()">
+                <input class="sdpi-item-value" id="client_path_input" type="text" placeholder="Пусто — автоопределение" oninput="scheduleClientPathCheck()" onchange="updateClientPath()">
             </div>
+            <div class="pi-hint pi-path-check hidden" id="client_path_check"></div>
             <div class="sdpi-item">
                                 <div class="sdpi-item-value pi-hint">
                     Плагин сам находит клиент Яндекс Музыки и при необходимости перезапускает его с нужным флагом. Путь указывайте, только если клиент установлен в нестандартное место.

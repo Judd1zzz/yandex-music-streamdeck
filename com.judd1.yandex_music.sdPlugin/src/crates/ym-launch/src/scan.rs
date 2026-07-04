@@ -5,8 +5,10 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientProc {
     pub pid: u32,
+    pub parent: Option<u32>,
     pub exe: PathBuf,
     pub is_main: bool,
+    pub cmd_unreadable: bool,
     pub debug_port: Option<u16>,
     pub start_time: u64,
 }
@@ -32,8 +34,10 @@ pub fn scan(sys: &mut System) -> Vec<ClientProc> {
         let cmd: Vec<String> = p.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         out.push(ClientProc {
             pid: pid.as_u32(),
+            parent: p.parent().map(sysinfo::Pid::as_u32),
             exe: exe.to_path_buf(),
             is_main: is_main(&cmd),
+            cmd_unreadable: cmd.is_empty(),
             debug_port: parse_debug_port(&cmd),
             start_time: p.start_time(),
         });
@@ -78,7 +82,15 @@ pub fn main_client(procs: &[ClientProc]) -> MainPick<'_> {
     match mains.as_slice() {
         [] => MainPick::NotFound,
         [one] => MainPick::One(one),
-        _ => MainPick::Ambiguous,
+        many => {
+            let ym_pids: std::collections::HashSet<u32> = procs.iter().map(|p| p.pid).collect();
+            let roots: Vec<&&ClientProc> =
+                many.iter().filter(|p| p.parent.is_none_or(|pp| !ym_pids.contains(&pp))).collect();
+            match roots.as_slice() {
+                [one] => MainPick::One(one),
+                _ => MainPick::Ambiguous,
+            }
+        }
     }
 }
 
@@ -106,7 +118,27 @@ mod tests {
     const WIN_EXE: &str = "C:\\Users\\u\\AppData\\Local\\Programs\\YandexMusic\\Яндекс Музыка.exe";
 
     fn proc(pid: u32, exe: &str, is_main: bool, debug_port: Option<u16>) -> ClientProc {
-        ClientProc { pid, exe: PathBuf::from(exe), is_main, debug_port, start_time: 0 }
+        ClientProc {
+            pid,
+            parent: None,
+            exe: PathBuf::from(exe),
+            is_main,
+            cmd_unreadable: false,
+            debug_port,
+            start_time: 0,
+        }
+    }
+
+    fn unreadable(pid: u32, parent: Option<u32>, exe: &str) -> ClientProc {
+        ClientProc {
+            pid,
+            parent,
+            exe: PathBuf::from(exe),
+            is_main: true,
+            cmd_unreadable: true,
+            debug_port: None,
+            start_time: 0,
+        }
     }
 
     #[test]
@@ -179,6 +211,33 @@ mod tests {
 
         let dup = vec![proc(1, MAC_EXE, true, None), proc(2, MAC_EXE, true, None)];
         assert!(matches!(main_client(&dup), MainPick::Ambiguous));
+    }
+
+    #[test]
+    fn elevated_family_resolves_to_parent_root() {
+        let procs = vec![
+            unreadable(100, Some(1), WIN_EXE),
+            unreadable(101, Some(100), WIN_EXE),
+            unreadable(102, Some(100), WIN_EXE),
+            unreadable(103, Some(101), WIN_EXE),
+        ];
+        assert!(matches!(main_client(&procs), MainPick::One(p) if p.pid == 100));
+    }
+
+    #[test]
+    fn two_independent_elevated_instances_stay_ambiguous() {
+        let procs = vec![
+            unreadable(100, Some(1), WIN_EXE),
+            unreadable(200, Some(2), WIN_EXE),
+            unreadable(201, Some(200), WIN_EXE),
+        ];
+        assert!(matches!(main_client(&procs), MainPick::Ambiguous));
+    }
+
+    #[test]
+    fn orphaned_parent_counts_as_root() {
+        let procs = vec![unreadable(100, None, WIN_EXE), unreadable(101, Some(100), WIN_EXE)];
+        assert!(matches!(main_client(&procs), MainPick::One(p) if p.pid == 100));
     }
 
     #[tokio::test]

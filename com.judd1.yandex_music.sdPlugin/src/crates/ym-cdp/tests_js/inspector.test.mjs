@@ -252,3 +252,126 @@ describe('Property Inspector: global settings (StreamDock context)', () => {
     assert.equal(msg.payload.discord_rpc_enabled, true);
   });
 });
+
+describe('PI: причина проблемы автозапуска', () => {
+  function sendStatus(ws, payload) {
+    ws.onmessage({ data: JSON.stringify({ event: 'sendToPropertyInspector', payload }) });
+  }
+
+  test('LocalStatus c reason показывает строку-подсказку', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendStatus(ws, { event: 'LocalStatus', status: 'disconnected', reason: 'Клиент запущен от имени администратора' });
+    const el = window.document.getElementById('local_status_reason');
+    assert.equal(el.textContent, 'Клиент запущен от имени администратора');
+    assert.ok(!el.classList.contains('hidden'), 'строка причины должна быть видима');
+  });
+
+  test('LocalStatus без reason прячет строку', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendStatus(ws, { event: 'LocalStatus', status: 'disconnected', reason: 'Порт занят' });
+    sendStatus(ws, { event: 'LocalStatus', status: 'disconnected' });
+    const el = window.document.getElementById('local_status_reason');
+    assert.equal(el.textContent, '');
+    assert.ok(el.classList.contains('hidden'));
+  });
+
+  test('при connected причина скрыта, даже если пришла в payload', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendStatus(ws, { event: 'LocalStatus', status: 'connected', reason: 'устаревшая причина' });
+    const el = window.document.getElementById('local_status_reason');
+    assert.ok(el.classList.contains('hidden'));
+  });
+
+  test('TokenStatus (режим Ynison) скрывает local-причину', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendStatus(ws, { event: 'LocalStatus', status: 'disconnected', reason: 'Клиент не найден' });
+    sendStatus(ws, { event: 'TokenStatus', status: 'missing' });
+    const el = window.document.getElementById('local_status_reason');
+    assert.ok(el.classList.contains('hidden'));
+  });
+});
+
+describe('PI: живая валидация пути клиента', () => {
+  function prepared() {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    return { window, ws };
+  }
+  function deliver(ws, payload) {
+    ws.onmessage({ data: JSON.stringify({ event: 'sendToPropertyInspector', payload }) });
+  }
+
+  test('изменение пути шлёт check_client_path с адресом ответа', () => {
+    const { window, ws } = prepared();
+    const input = window.document.getElementById('client_path_input');
+    input.value = 'C:\\Custom\\YandexMusic';
+    window.updateClientPath();
+
+    const sent = ws.sent.filter((m) => m.event === 'sendToPlugin' && m.payload.event === 'check_client_path');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].payload.path, 'C:\\Custom\\YandexMusic');
+    assert.equal(sent[0].payload.reply_action, 'com.judd1.yandex_music.action.like');
+  });
+
+  test('пустой путь не шлёт запрос и прячет строку', () => {
+    const { window, ws } = prepared();
+    const input = window.document.getElementById('client_path_input');
+    input.value = '   ';
+    window.updateClientPath();
+
+    const sent = ws.sent.filter((m) => m.event === 'sendToPlugin' && m.payload.event === 'check_client_path');
+    assert.equal(sent.length, 0);
+    assert.ok(window.document.getElementById('client_path_check').classList.contains('hidden'));
+  });
+
+  test('вердикты рендерятся своими текстами и тонами', () => {
+    const { window, ws } = prepared();
+    const el = window.document.getElementById('client_path_check');
+
+    deliver(ws, { event: 'ClientPathCheck', verdict: 'ok', resolved: null, expected: 'Яндекс Музыка.exe' });
+    assert.equal(el.textContent, '✓ Клиент найден');
+    assert.ok(el.className.includes('pi-path-ok'));
+    assert.ok(!el.className.includes('hidden'));
+
+    deliver(ws, {
+      event: 'ClientPathCheck',
+      verdict: 'ok_dir',
+      resolved: 'C:\\Custom\\YandexMusic\\Яндекс Музыка.exe',
+      expected: 'Яндекс Музыка.exe',
+    });
+    assert.ok(el.textContent.includes('C:\\Custom\\YandexMusic\\Яндекс Музыка.exe'));
+    assert.ok(el.className.includes('pi-path-warn'));
+
+    deliver(ws, { event: 'ClientPathCheck', verdict: 'missing', resolved: null, expected: 'Яндекс Музыка.exe' });
+    assert.equal(el.textContent, 'Путь не существует');
+    assert.ok(el.className.includes('pi-path-err'));
+
+    deliver(ws, { event: 'ClientPathCheck', verdict: 'dir_without_client', resolved: null, expected: 'Яндекс Музыка.app' });
+    assert.ok(el.textContent.includes('Яндекс Музыка.app'));
+    assert.ok(el.className.includes('pi-path-err'));
+  });
+
+  test('неизвестный вердикт прячет строку', () => {
+    const { window, ws } = prepared();
+    const el = window.document.getElementById('client_path_check');
+    deliver(ws, { event: 'ClientPathCheck', verdict: 'ok', resolved: null, expected: 'x' });
+    assert.ok(!el.className.includes('hidden'));
+    deliver(ws, { event: 'ClientPathCheck', verdict: 'что-то-новое', resolved: null, expected: 'x' });
+    assert.ok(el.className.includes('hidden'));
+    assert.equal(el.textContent, '');
+  });
+});

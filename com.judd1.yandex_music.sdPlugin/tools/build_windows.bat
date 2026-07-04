@@ -21,14 +21,6 @@ cargo run -p xtask -- package
 if errorlevel 1 goto :err
 popd
 
-if not exist "%HERE%\bin\ffmpeg.exe" (
-  echo.
-  echo WARNING: %HERE%\bin\ffmpeg.exe is missing ^(downloads will not work without it^).
-  echo It is vendored in the repo, so a fresh clone should already have it.
-  echo To rebuild the minimal ffmpeg.exe, run on a Mac: tools/build_ffmpeg_win.sh
-  echo ^(needs: brew install mingw-w64^), then commit bin\ffmpeg.exe and re-run this script.
-)
-
 echo.
 echo Done. Release zip is in %HERE%\..\release\
 goto :eof

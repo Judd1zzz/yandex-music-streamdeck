@@ -182,6 +182,15 @@ fn cleanup_stale(dir: &Path) {
     }
 }
 
+fn cleanup_legacy(dir: &Path) {
+    for name in ["ffmpeg", "ffmpeg.exe"] {
+        let p = dir.join("bin").join(name);
+        if p.is_file() && std::fs::remove_file(&p).is_ok() {
+            tracing::info!("ym-update: удалён устаревший {}", p.display());
+        }
+    }
+}
+
 async fn check_and_apply(owner: &str, repo: &str, current: &str) -> Result<Option<String>> {
     let client = reqwest::Client::builder()
         .user_agent(UA)
@@ -208,6 +217,7 @@ pub async fn run(owner: &str, repo: &str, current: &str) {
     }
     if let Ok(dir) = plugin_dir() {
         cleanup_stale(&dir);
+        cleanup_legacy(&dir);
     }
     match check_and_apply(owner, repo, current).await {
         Ok(Some(v)) => tracing::info!("ym-update: применено обновление {v} (вступит в силу при следующем запуске)"),
@@ -365,9 +375,9 @@ mod tests {
         {
             let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
             let p = PLUGIN_DIR_NAME;
-            zw.start_file(format!("{p}/bin/ffmpeg"), SimpleFileOptions::default().unix_permissions(0o755))
+            zw.start_file(format!("{p}/bin/helper"), SimpleFileOptions::default().unix_permissions(0o755))
                 .unwrap();
-            zw.write_all(b"FFMPEG").unwrap();
+            zw.write_all(b"HELPER").unwrap();
             zw.start_file(format!("{p}/manifest.json"), SimpleFileOptions::default().unix_permissions(0o644))
                 .unwrap();
             zw.write_all(b"{}").unwrap();
@@ -376,8 +386,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         apply_zip_with(&buf, tmp.path(), "ym-plugin", |_| Ok(())).unwrap();
 
-        let ffmpeg = std::fs::metadata(tmp.path().join("bin/ffmpeg")).unwrap().permissions().mode();
-        assert_eq!(ffmpeg & 0o111, 0o111, "ffmpeg должен остаться исполняемым");
+        let helper = std::fs::metadata(tmp.path().join("bin/helper")).unwrap().permissions().mode();
+        assert_eq!(helper & 0o111, 0o111, "исполняемый файл должен остаться исполняемым");
         let manifest = std::fs::metadata(tmp.path().join("manifest.json")).unwrap().permissions().mode();
         assert_eq!(manifest & 0o111, 0, "обычный файл не должен становиться исполняемым");
     }
@@ -392,14 +402,35 @@ mod tests {
         std::fs::write(dir.join("manifest.ymtmp"), b"junk").unwrap();
         std::fs::write(dir.join("static/img/icon.ymtmp"), b"junk").unwrap();
         std::fs::write(dir.join("bin/ym-plugin.new"), b"junk").unwrap();
-        std::fs::write(dir.join("bin/ffmpeg"), b"keep").unwrap();
+        std::fs::write(dir.join("bin/helper"), b"keep").unwrap();
 
         cleanup_stale(dir);
 
         assert!(dir.join("manifest.json").exists());
-        assert!(dir.join("bin/ffmpeg").exists());
+        assert!(dir.join("bin/helper").exists());
         assert!(!dir.join("manifest.ymtmp").exists());
         assert!(!dir.join("static/img/icon.ymtmp").exists());
         assert!(!dir.join("bin/ym-plugin.new").exists());
+    }
+
+    #[test]
+    fn cleanup_legacy_removes_only_old_ffmpeg() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(dir.join("bin/ffmpeg"), b"old").unwrap();
+        std::fs::write(dir.join("bin/ffmpeg.exe"), b"old").unwrap();
+        std::fs::write(dir.join("bin/ym-plugin"), b"keep").unwrap();
+        std::fs::write(dir.join("manifest.json"), b"{}").unwrap();
+
+        cleanup_legacy(dir);
+
+        assert!(!dir.join("bin/ffmpeg").exists(), "устаревший ffmpeg должен удаляться");
+        assert!(!dir.join("bin/ffmpeg.exe").exists());
+        assert!(dir.join("bin/ym-plugin").exists());
+        assert!(dir.join("manifest.json").exists());
+
+        cleanup_legacy(dir);
+        assert!(dir.join("bin/ym-plugin").exists(), "повторный вызов безопасен");
     }
 }

@@ -9,6 +9,7 @@ pub enum StateEvent {
     Dislike(DislikeData),
     Volume(VolumeData),
     Download { active: bool },
+    LaunchHint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,6 +21,7 @@ pub enum StateKind {
     Dislike,
     Volume,
     Download,
+    LaunchHint,
 }
 
 impl StateEvent {
@@ -32,6 +34,7 @@ impl StateEvent {
             StateEvent::Dislike(_) => StateKind::Dislike,
             StateEvent::Volume(_) => StateKind::Volume,
             StateEvent::Download { .. } => StateKind::Download,
+            StateEvent::LaunchHint => StateKind::LaunchHint,
         }
     }
 }

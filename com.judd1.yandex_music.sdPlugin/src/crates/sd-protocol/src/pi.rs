@@ -22,8 +22,11 @@ pub fn token_status_payload(status: TokenStatus) -> Value {
     serde_json::json!({ "event": "TokenStatus", "status": status })
 }
 
-pub fn local_status_payload(status: LocalStatus) -> Value {
-    serde_json::json!({ "event": "LocalStatus", "status": status })
+pub fn local_status_payload(status: LocalStatus, reason: Option<&str>) -> Value {
+    match reason {
+        Some(r) => serde_json::json!({ "event": "LocalStatus", "status": status, "reason": r }),
+        None => serde_json::json!({ "event": "LocalStatus", "status": status }),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,8 +53,22 @@ mod tests {
     fn status_payloads_use_lowercase_strings() {
         assert_eq!(token_status_payload(TokenStatus::Valid), json!({"event":"TokenStatus","status":"valid"}));
         assert_eq!(token_status_payload(TokenStatus::Offline), json!({"event":"TokenStatus","status":"offline"}));
-        assert_eq!(local_status_payload(LocalStatus::Connected), json!({"event":"LocalStatus","status":"connected"}));
-        assert_eq!(local_status_payload(LocalStatus::Loading), json!({"event":"LocalStatus","status":"loading"}));
+        assert_eq!(
+            local_status_payload(LocalStatus::Connected, None),
+            json!({"event":"LocalStatus","status":"connected"})
+        );
+        assert_eq!(
+            local_status_payload(LocalStatus::Loading, None),
+            json!({"event":"LocalStatus","status":"loading"})
+        );
+    }
+
+    #[test]
+    fn local_status_payload_carries_reason() {
+        assert_eq!(
+            local_status_payload(LocalStatus::Disconnected, Some("клиент запущен от администратора")),
+            json!({"event":"LocalStatus","status":"disconnected","reason":"клиент запущен от администратора"})
+        );
     }
 
     #[test]

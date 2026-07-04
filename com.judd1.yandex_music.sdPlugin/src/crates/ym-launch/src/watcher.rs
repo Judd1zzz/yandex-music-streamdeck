@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 use ym_model::{LaunchConfig, StateEvent};
 
 use crate::decide::{Backoff, DecideInput, Decision, MainProc, decide};
-use crate::ops::{LaunchTarget, PlatformOps};
+use crate::ops::{LaunchError, LaunchTarget, PlatformOps};
 use crate::probe::probe;
-use crate::resolve::{Os, current_os, load_cached_exe, resolve_launch_target, store_cached_exe};
+use crate::resolve::{Os, current_os, fs_path_kind, load_cached_exe, resolve_launch_target, store_cached_exe};
 use crate::scan::{MainPick, app_bundle_from_exe, main_client, scan};
 
 pub trait CdpLink: Send + Sync {
@@ -28,6 +28,7 @@ pub struct WatcherDeps {
     pub kick: mpsc::Receiver<()>,
     pub ops: Arc<dyn PlatformOps>,
     pub cache_path: PathBuf,
+    pub reason: watch::Sender<Option<String>>,
     pub shutdown: CancellationToken,
 }
 
@@ -45,6 +46,7 @@ async fn run(mut deps: WatcherDeps) {
     let mut sys = sysinfo::System::new();
     let mut backoff = Backoff::default();
     let mut last_hint: Option<Instant> = None;
+    let mut declined = false;
     loop {
         let kick = tokio::select! {
             _ = deps.shutdown.cancelled() => return,
@@ -67,8 +69,26 @@ async fn run(mut deps: WatcherDeps) {
                 Err(_) => return,
             },
         };
-        cycle(&mut deps, &mut sys, &mut backoff, &mut last_hint, kick).await;
+        cycle(&mut deps, &mut sys, &mut backoff, &mut last_hint, &mut declined, kick).await;
     }
+}
+
+fn declined_gate(declined: &mut bool, kick: bool) -> bool {
+    if kick {
+        *declined = false;
+    }
+    *declined
+}
+
+fn set_reason(tx: &watch::Sender<Option<String>>, v: Option<String>) {
+    tx.send_if_modified(|cur| {
+        if *cur == v {
+            false
+        } else {
+            *cur = v;
+            true
+        }
+    });
 }
 
 async fn cycle(
@@ -76,9 +96,12 @@ async fn cycle(
     sys: &mut sysinfo::System,
     backoff: &mut Backoff,
     last_hint: &mut Option<Instant>,
+    declined: &mut bool,
     kick: bool,
 ) {
     if deps.cdp.is_connected() {
+        *declined = false;
+        set_reason(&deps.reason, None);
         return;
     }
     let cfg = deps.config.borrow().clone();
@@ -87,6 +110,9 @@ async fn cycle(
     }
     let any_local = deps.any_local.load(Ordering::Acquire);
     if !any_local && !kick {
+        return;
+    }
+    if declined_gate(declined, kick) {
         return;
     }
     let port = deps.cdp.port();
@@ -100,7 +126,13 @@ async fn cycle(
             }
             let age_secs = now_epoch.saturating_sub(p.start_time);
             (
-                Some(MainProc { pid: p.pid, exe: p.exe.clone(), debug_port: p.debug_port, age_secs }),
+                Some(MainProc {
+                    pid: p.pid,
+                    exe: p.exe.clone(),
+                    debug_port: p.debug_port,
+                    age_secs,
+                    cmd_unreadable: p.cmd_unreadable,
+                }),
                 false,
             )
         }
@@ -138,12 +170,18 @@ async fn cycle(
             tracing::info!("launch: клиент запущен без порта отладки — перезапускаю с --remote-debugging-port={port}");
             backoff.note_attempt(Instant::now());
             let target = restart_target(&exe);
-            let ok = restart_flow(deps.ops.as_ref(), pid, &target, port, deps.cdp.as_ref()).await;
-            backoff.note_result(ok);
-            if ok {
-                tracing::info!("launch: клиент перезапущен, подключение установлено");
-            } else {
-                tracing::warn!("launch: перезапуск клиента не удался");
+            let res = restart_flow(deps.ops.as_ref(), pid, &target, port, deps.cdp.as_ref()).await;
+            backoff.note_result(res == FlowResult::Connected);
+            match res {
+                FlowResult::Connected => {
+                    set_reason(&deps.reason, None);
+                    tracing::info!("launch: клиент перезапущен, подключение установлено");
+                }
+                FlowResult::Declined => {
+                    *declined = true;
+                    set_reason(&deps.reason, Some(REASON_DECLINED.to_owned()));
+                }
+                FlowResult::Failed => tracing::warn!("launch: перезапуск клиента не удался"),
             }
         }
         Decision::Launch => {
@@ -154,13 +192,27 @@ async fn cycle(
                 cfg.client_exe_path.as_deref(),
                 cached.as_deref(),
                 local_app_data().as_deref(),
-                &|p| p.exists(),
+                &fs_path_kind,
             );
             let ok = match &target {
                 Some(t) => {
                     tracing::info!("launch: запускаю клиент с --remote-debugging-port={port}");
                     match deps.ops.launch(t, port).await {
-                        Ok(()) => wait_connected(deps.cdp.as_ref(), CONNECT_WAIT).await,
+                        Ok(()) => {
+                            let connected = wait_connected(deps.cdp.as_ref(), CONNECT_WAIT).await;
+                            if connected {
+                                set_reason(&deps.reason, None);
+                            }
+                            connected
+                        }
+                        Err(LaunchError::UserDeclined) => {
+                            tracing::info!(
+                                "launch: пользователь отклонил запрос UAC — автозапуск приостановлен до следующего нажатия кнопки плагина"
+                            );
+                            *declined = true;
+                            set_reason(&deps.reason, Some(REASON_DECLINED.to_owned()));
+                            false
+                        }
                         Err(e) => {
                             tracing::warn!("launch: {e}");
                             false
@@ -171,18 +223,35 @@ async fn cycle(
                     tracing::warn!(
                         "launch: клиент не найден — установите десктоп-версию с music.yandex.ru/download (версия из Microsoft Store не поддерживается)"
                     );
+                    set_reason(&deps.reason, Some(REASON_NOT_FOUND.to_owned()));
                     false
                 }
             };
             backoff.note_result(ok);
         }
         Decision::HintForeignPort => {
+            set_reason(
+                &deps.reason,
+                Some(format!("Порт {port} занят другим приложением — укажите другой порт в настройках")),
+            );
             if hint_due(last_hint) {
                 tracing::warn!("launch: порт {port} занят посторонним приложением — укажите другой порт в настройках плагина");
             }
         }
+        Decision::HintElevated => {
+            set_reason(&deps.reason, Some(REASON_ELEVATED.to_owned()));
+            if hint_due(last_hint) {
+                tracing::warn!(
+                    "launch: клиент, похоже, запущен от имени администратора — плагин не может им управлять. Снимите галочку «Запускать эту программу от имени администратора» в свойствах Яндекс Музыки или перезапустите клиент вручную"
+                );
+            }
+        }
     }
 }
+
+pub const REASON_ELEVATED: &str = "Клиент запущен от имени администратора — плагин не может им управлять. Снимите галочку «Запускать от имени администратора» в свойствах клиента или перезапустите его вручную";
+pub const REASON_DECLINED: &str = "Запрос прав администратора отклонён — нажмите любую кнопку плагина, чтобы попробовать снова";
+pub const REASON_NOT_FOUND: &str = "Клиент не найден — установите его с music.yandex.ru/download или укажите путь в настройках";
 
 fn hint_due(last_hint: &mut Option<Instant>) -> bool {
     let now = Instant::now();
@@ -206,26 +275,43 @@ fn restart_target(exe: &Path) -> LaunchTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlowResult {
+    Connected,
+    Failed,
+    Declined,
+}
+
 pub async fn restart_flow(
     ops: &dyn PlatformOps,
     pid: u32,
     target: &LaunchTarget,
     port: u16,
     cdp: &dyn CdpLink,
-) -> bool {
+) -> FlowResult {
     ops.quit_graceful(pid).await;
     if !wait_gone(ops, pid, QUIT_WAIT).await {
         ops.force_kill(pid).await;
         if !wait_gone(ops, pid, KILL_WAIT).await {
             tracing::warn!("launch: не удалось завершить процесс клиента (pid {pid})");
-            return false;
+            return FlowResult::Failed;
         }
     }
     match ops.launch(target, port).await {
-        Ok(()) => wait_connected(cdp, CONNECT_WAIT).await,
+        Ok(()) => {
+            if wait_connected(cdp, CONNECT_WAIT).await {
+                FlowResult::Connected
+            } else {
+                FlowResult::Failed
+            }
+        }
+        Err(LaunchError::UserDeclined) => {
+            tracing::info!("launch: пользователь отклонил запрос UAC — перезапуск отменён");
+            FlowResult::Declined
+        }
         Err(e) => {
             tracing::warn!("launch: {e}");
-            false
+            FlowResult::Failed
         }
     }
 }
@@ -266,16 +352,16 @@ mod tests {
         journal: Mutex<Vec<String>>,
         alive_until_force: AtomicBool,
         alive_polls_left: AtomicI32,
-        launch_ok: bool,
+        launch_result: Result<(), LaunchError>,
     }
 
     impl MockOps {
-        fn new(alive_polls_left: i32, alive_until_force: bool, launch_ok: bool) -> Self {
+        fn new(alive_polls_left: i32, alive_until_force: bool, launch_result: Result<(), LaunchError>) -> Self {
             Self {
                 journal: Mutex::new(Vec::new()),
                 alive_until_force: AtomicBool::new(alive_until_force),
                 alive_polls_left: AtomicI32::new(alive_polls_left),
-                launch_ok,
+                launch_result,
             }
         }
         fn log(&self, s: impl Into<String>) {
@@ -302,9 +388,9 @@ mod tests {
         fn is_alive_ym(&self, _pid: u32) -> bool {
             self.alive_polls_left.fetch_sub(1, Ordering::SeqCst) > 0
         }
-        async fn launch(&self, target: &LaunchTarget, port: u16) -> Result<(), String> {
+        async fn launch(&self, target: &LaunchTarget, port: u16) -> Result<(), LaunchError> {
             self.log(format!("launch {target:?} {port}"));
-            if self.launch_ok { Ok(()) } else { Err("мок-отказ".to_owned()) }
+            self.launch_result.clone()
         }
     }
 
@@ -342,18 +428,18 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn restart_happy_path_graceful() {
-        let ops = MockOps::new(1, false, true);
+        let ops = MockOps::new(1, false, Ok(()));
         let link = MockLink::new(9222, 2);
-        assert!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Connected);
         let j = ops.journal();
         assert_eq!(j, vec!["quit 42".to_owned(), format!("launch {:?} 9222", exe_target())]);
     }
 
     #[tokio::test(start_paused = true)]
     async fn restart_escalates_to_force_kill() {
-        let ops = MockOps::new(i32::MAX, true, true);
+        let ops = MockOps::new(i32::MAX, true, Ok(()));
         let link = MockLink::new(9222, 0);
-        assert!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Connected);
         let j = ops.journal();
         assert_eq!(j.first().map(String::as_str), Some("quit 42"));
         assert_eq!(j.get(1).map(String::as_str), Some("force 42"));
@@ -362,9 +448,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn restart_aborts_when_process_immortal() {
-        let ops = MockOps::new(i32::MAX, false, true);
+        let ops = MockOps::new(i32::MAX, false, Ok(()));
         let link = MockLink::new(9222, 0);
-        assert!(!restart_flow(&ops, 42, &exe_target(), 9222, &link).await);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Failed);
         let j = ops.journal();
         assert!(j.iter().all(|e| !e.starts_with("launch")));
         assert_eq!(j, vec!["quit 42", "force 42"]);
@@ -372,16 +458,49 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn restart_fails_when_launch_errors() {
-        let ops = MockOps::new(1, false, false);
+        let ops = MockOps::new(1, false, Err(LaunchError::Failed("мок-отказ".into())));
         let link = MockLink::new(9222, 0);
-        assert!(!restart_flow(&ops, 42, &exe_target(), 9222, &link).await);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Failed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_declined_when_uac_rejected() {
+        let ops = MockOps::new(1, false, Err(LaunchError::UserDeclined));
+        let link = MockLink::new(9222, u32::MAX);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Declined);
     }
 
     #[tokio::test(start_paused = true)]
     async fn restart_fails_when_never_connects() {
-        let ops = MockOps::new(1, false, true);
+        let ops = MockOps::new(1, false, Ok(()));
         let link = MockLink::new(9222, u32::MAX);
-        assert!(!restart_flow(&ops, 42, &exe_target(), 9222, &link).await);
+        assert_eq!(restart_flow(&ops, 42, &exe_target(), 9222, &link).await, FlowResult::Failed);
+    }
+
+    #[test]
+    fn set_reason_dedups_and_notifies_on_change() {
+        let (tx, mut rx) = tokio::sync::watch::channel::<Option<String>>(None);
+        set_reason(&tx, None);
+        assert!(!rx.has_changed().unwrap(), "повтор того же значения не будит подписчиков");
+        set_reason(&tx, Some("причина".into()));
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().clone(), Some("причина".to_owned()));
+        set_reason(&tx, Some("причина".into()));
+        assert!(!rx.has_changed().unwrap());
+        set_reason(&tx, None);
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().clone(), None);
+    }
+
+    #[test]
+    fn declined_gate_suppresses_until_kick() {
+        let mut declined = true;
+        assert!(declined_gate(&mut declined, false));
+        assert!(declined, "без кика состояние сохраняется");
+        assert!(!declined_gate(&mut declined, true));
+        assert!(!declined, "кик сбрасывает отказ");
+        let mut fresh = false;
+        assert!(!declined_gate(&mut fresh, false));
     }
 
     #[tokio::test(start_paused = true)]
@@ -405,8 +524,9 @@ mod tests {
             any_local: Arc::new(AtomicBool::new(false)),
             config: cfg_rx,
             kick: kick_rx,
-            ops: Arc::new(MockOps::new(0, false, true)),
+            ops: Arc::new(MockOps::new(0, false, Ok(()))),
             cache_path: dir.path().join(".ym_client_path"),
+            reason: tokio::sync::watch::channel(None).0,
             shutdown: shutdown.clone(),
         };
         let task = spawn(deps);

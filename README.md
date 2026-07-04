@@ -464,7 +464,9 @@ cargo run -p xtask -- dist
 ```
 
 `manifest.json` already points `CodePathMac` / `CodePathWin` at the binary. Builds are
-native per platform (macOS and Windows built separately).
+native per platform (macOS and Windows built separately). Audio decoding and remuxing for
+downloads are pure Rust (Symphonia); MP3 encoding uses a statically linked LAME
+(libmp3lame, LGPL-3.0) — everything ships inside the single plugin binary.
 
 ### Tests
 

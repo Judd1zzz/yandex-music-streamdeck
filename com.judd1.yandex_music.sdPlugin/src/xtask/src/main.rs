@@ -148,14 +148,6 @@ fn write_release_zip(zip_path: &Path, plugin: &Path, bin: &str) -> Result<()> {
     add_file(&mut zw, &plugin.join("manifest.json"), &format!("{PLUGIN_DIR_NAME}/manifest.json"), opts)?;
     add_tree(&mut zw, &plugin.join("static"), &format!("{PLUGIN_DIR_NAME}/static"), opts)?;
 
-    let ffmpeg = if bin.ends_with(".exe") { "ffmpeg.exe" } else { "ffmpeg" };
-    let ffmpeg_src = plugin.join("bin").join(ffmpeg);
-    if ffmpeg_src.exists() {
-        add_file(&mut zw, &ffmpeg_src, &format!("{PLUGIN_DIR_NAME}/bin/{ffmpeg}"), exec_opts)?;
-    } else {
-        eprintln!("xtask: внимание — {} отсутствует, ffmpeg не попадёт в релиз", ffmpeg_src.display());
-    }
-
     add_file(&mut zw, &plugin.join("bin").join(bin), &format!("{PLUGIN_DIR_NAME}/bin/{bin}"), exec_opts)?;
 
     zw.finish().context("финализация zip")?;
@@ -316,7 +308,6 @@ mod tests {
         std::fs::write(plugin.join("manifest.json"), b"{}")?;
         std::fs::write(plugin.join("static").join("icon.png"), b"png")?;
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
-        std::fs::write(plugin.join("bin").join("ffmpeg"), b"ffmpeg")?;
 
         let zip_path = tmp.join("out.zip");
         write_release_zip(&zip_path, &plugin, "ym-plugin")?;
@@ -328,8 +319,10 @@ mod tests {
         }
         let p = PLUGIN_DIR_NAME;
         assert_eq!(ordered.last().unwrap(), &format!("{p}/bin/ym-plugin"), "бинарь — commit point, строго последняя запись");
-        let ffmpeg_pos = ordered.iter().position(|n| n == &format!("{p}/bin/ffmpeg")).expect("ffmpeg в архиве");
-        assert!(ffmpeg_pos < ordered.len() - 1, "ffmpeg пишется до бинаря");
+        assert!(
+            !ordered.iter().any(|n| n.contains("ffmpeg")),
+            "ffmpeg больше не поставляется в релизе"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
         Ok(())

@@ -15,6 +15,7 @@ pub struct MainProc {
     pub exe: PathBuf,
     pub debug_port: Option<u16>,
     pub age_secs: u64,
+    pub cmd_unreadable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub enum Decision {
     Restart { pid: u32, exe: PathBuf },
     Launch,
     HintForeignPort,
+    HintElevated,
 }
 
 pub fn decide(i: &DecideInput) -> Decision {
@@ -61,6 +63,13 @@ pub fn decide(i: &DecideInput) -> Decision {
         return Decision::HintForeignPort;
     }
     match &i.main_proc {
+        Some(m) if m.cmd_unreadable => {
+            if m.age_secs < GRACE_SECS {
+                Decision::Nothing
+            } else {
+                Decision::HintElevated
+            }
+        }
         Some(m) => {
             let grace = if m.debug_port.is_some() { BIND_FAIL_SECS } else { GRACE_SECS };
             if m.age_secs < grace || !i.cooldown_ok {
@@ -126,7 +135,17 @@ mod tests {
     }
 
     fn main_proc(debug_port: Option<u16>, age_secs: u64) -> MainProc {
-        MainProc { pid: 42, exe: PathBuf::from("/Applications/Яндекс Музыка.app/Contents/MacOS/Яндекс Музыка"), debug_port, age_secs }
+        MainProc {
+            pid: 42,
+            exe: PathBuf::from("/Applications/Яндекс Музыка.app/Contents/MacOS/Яндекс Музыка"),
+            debug_port,
+            age_secs,
+            cmd_unreadable: false,
+        }
+    }
+
+    fn elevated_proc(age_secs: u64) -> MainProc {
+        MainProc { cmd_unreadable: true, ..main_proc(None, age_secs) }
     }
 
     #[test]
@@ -221,6 +240,32 @@ mod tests {
         assert_eq!(decide(&i), Decision::Nothing);
         i.main_proc = Some(main_proc(None, GRACE_SECS));
         assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
+    }
+
+    #[test]
+    fn elevated_main_hints_instead_of_restart() {
+        let mut i = base();
+        i.main_proc = Some(elevated_proc(999));
+        assert_eq!(decide(&i), Decision::HintElevated);
+        i.cooldown_ok = false;
+        assert_eq!(decide(&i), Decision::HintElevated, "hint не зависит от кулдауна перезапусков");
+    }
+
+    #[test]
+    fn elevated_main_respects_startup_grace() {
+        let mut i = base();
+        i.main_proc = Some(elevated_proc(GRACE_SECS - 1));
+        assert_eq!(decide(&i), Decision::Nothing);
+        i.main_proc = Some(elevated_proc(GRACE_SECS));
+        assert_eq!(decide(&i), Decision::HintElevated);
+    }
+
+    #[test]
+    fn elevated_main_with_alive_port_is_passive() {
+        let mut i = base();
+        i.port_status = PortStatus::YmAlive;
+        i.main_proc = Some(elevated_proc(999));
+        assert_eq!(decide(&i), Decision::Nothing);
     }
 
     #[test]

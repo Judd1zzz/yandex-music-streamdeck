@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 reqwest = { workspace = true, features = ["multipart"] }
-tokio = { workspace = true, features = ["fs", "process"] }
+tokio = { workspace = true, features = ["fs"] }
 serde_json.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
@@ -16,3 +16,8 @@ sha2.workspace = true
 aes.workspace = true
 ctr.workspace = true
 lofty.workspace = true
+symphonia.workspace = true
+mp3lame-encoder.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

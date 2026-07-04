@@ -6,7 +6,7 @@ pub mod names;
 pub mod orchestrator;
 pub mod registry;
 
-pub use action::{interest_of, Action, ActionCtx, Interests, Shared};
+pub use action::{interest_of, Action, ActionCtx, ClientPathChecker, ClientPathReport, Interests, Shared};
 pub use actor::{spawn_actor, ActorHandle, ActorMsg};
 pub use download::run_download;
 pub use orchestrator::{ActionFactory, Orchestrator};

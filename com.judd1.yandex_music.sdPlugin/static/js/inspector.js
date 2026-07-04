@@ -56,6 +56,65 @@ function updateClientAutofix() {
 function updateClientPath() {
     globalSettings.client_exe_path = document.getElementById("client_path_input").value;
     saveGlobalSettings();
+    requestClientPathCheck();
+}
+
+var clientPathCheckTimer = null;
+
+function scheduleClientPathCheck() {
+    if (clientPathCheckTimer) clearTimeout(clientPathCheckTimer);
+    clientPathCheckTimer = setTimeout(requestClientPathCheck, 400);
+}
+
+function requestClientPathCheck() {
+    const input = document.getElementById("client_path_input");
+    const el = document.getElementById("client_path_check");
+    if (!input || !el) return;
+    const path = input.value.trim();
+    if (!path) {
+        el.textContent = "";
+        el.className = "pi-hint pi-path-check hidden";
+        return;
+    }
+    if (!websocket || websocket.readyState !== 1) return;
+    websocket.send(JSON.stringify({
+        event: "sendToPlugin",
+        context: uuid,
+        payload: {
+            event: "check_client_path",
+            path: path,
+            reply_action: actionInfo ? actionInfo.action : null,
+            reply_context: actionInfo ? actionInfo.context : null
+        }
+    }));
+}
+
+function renderClientPathCheck(payload) {
+    const el = document.getElementById("client_path_check");
+    if (!el) return;
+    const expected = payload.expected || "";
+    let text = "";
+    let tone = "warn";
+    if (payload.verdict === "ok") {
+        text = "✓ Клиент найден";
+        tone = "ok";
+    } else if (payload.verdict === "ok_dir") {
+        text = "Указана папка — будет использован " + (payload.resolved || expected);
+        tone = "warn";
+    } else if (payload.verdict === "missing") {
+        text = "Путь не существует";
+        tone = "err";
+    } else if (payload.verdict === "dir_without_client") {
+        text = "В папке нет «" + expected + "» — укажите путь к " + expected;
+        tone = "err";
+    }
+    if (!text) {
+        el.textContent = "";
+        el.className = "pi-hint pi-path-check hidden";
+        return;
+    }
+    el.textContent = text;
+    el.className = "pi-hint pi-path-check pi-path-" + tone;
 }
 
 function updateDiscordEnabled() {
@@ -317,6 +376,7 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
             if (autofixChk) autofixChk.checked = globalSettings.client_autofix_enabled !== false;
             const clientPath = document.getElementById("client_path_input");
             if (clientPath && typeof globalSettings.client_exe_path === "string") clientPath.value = globalSettings.client_exe_path;
+            if (clientPath && document.activeElement !== clientPath) scheduleClientPathCheck();
             const discordChk = document.getElementById("chk_discord_rpc");
             if (discordChk) discordChk.checked = globalSettings.discord_rpc_enabled === true;
             const discordApp = document.getElementById("discord_app_id_input");
@@ -328,11 +388,23 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
             var payload = jsonObj.payload;
             if (payload.event === "TokenStatus") {
                 updateStatusIndicator("token_status_indicator", payload.status);
+                updateLocalReason("");
             } else if (payload.event === "LocalStatus") {
                  updateStatusIndicator("local_status_indicator", payload.status);
+                 updateLocalReason(payload.status === "connected" ? "" : payload.reason);
+            } else if (payload.event === "ClientPathCheck") {
+                renderClientPathCheck(payload);
             }
         }
     };
+}
+
+function updateLocalReason(reason) {
+    const el = document.getElementById("local_status_reason");
+    if (!el) return;
+    const text = reason || "";
+    el.textContent = text;
+    el.classList.toggle("hidden", !text);
 }
 
 function updateStatusIndicator(id, status) {

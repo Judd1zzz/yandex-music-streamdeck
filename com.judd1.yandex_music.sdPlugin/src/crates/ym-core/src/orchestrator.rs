@@ -130,6 +130,10 @@ impl Orchestrator {
                     }
                     self.recalc_ynison();
                     self.recalc_local();
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str)
+                    == Some("check_client_path")
+                {
+                    self.answer_client_path_check(&a).await;
                 }
             }
 
@@ -185,6 +189,28 @@ impl Orchestrator {
         {
             self.shared.launch_kick();
         }
+    }
+
+    async fn answer_client_path_check(&self, a: &sd_protocol::ActionEvt) {
+        let raw = a.payload.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
+        let Some(report) = self.shared.check_client_path(raw) else { return };
+        let action = a
+            .payload
+            .get("reply_action")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.action.clone());
+        let context = a
+            .payload
+            .get("reply_context")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.context.clone());
+        let (Some(action), Some(context)) = (action, context) else { return };
+        let _ = self
+            .host
+            .send(Outbound::SendToPropertyInspector { action, context, payload: report.payload() })
+            .await;
     }
 }
 
@@ -287,6 +313,62 @@ mod tests {
         let (tx, mut rx, _s) = run_orch(Interests::all());
         tx.send(appear("c1")).await.unwrap();
         assert_eq!(state_of(&next_out(&mut rx).await), 1);
+    }
+
+    #[tokio::test]
+    async fn check_client_path_request_is_answered_to_reply_address() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_client_path_checker(Arc::new(|raw: &str| crate::action::ClientPathReport {
+            verdict: if raw == "C:\\ok.exe" { "ok" } else { "missing" },
+            resolved: None,
+            expected: "Яндекс Музыка.exe",
+        }));
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "check_client_path",
+                "path": "C:\\ok.exe",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { action, context, payload } => {
+                assert_eq!(action, "com.judd1.yandex_music.action.next");
+                assert_eq!(context, "BTN-1");
+                assert_eq!(payload["event"], "ClientPathCheck");
+                assert_eq!(payload["verdict"], "ok");
+                assert_eq!(payload["expected"], "Яндекс Музыка.exe");
+            }
+            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_client_path_is_silent_without_checker_or_reply_address() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        let req = |path: &str| {
+            Inbound::SendToPlugin(ActionEvt {
+                context: None,
+                action: None,
+                device: None,
+                payload: json!({ "event": "check_client_path", "path": path }),
+            })
+        };
+        tx.send(req("x")).await.unwrap();
+        expect_silence(&mut rx).await;
+
+        shared.set_client_path_checker(Arc::new(|_raw: &str| crate::action::ClientPathReport {
+            verdict: "ok",
+            resolved: None,
+            expected: "Яндекс Музыка.exe",
+        }));
+        tx.send(req("x")).await.unwrap();
+        expect_silence(&mut rx).await;
     }
 
     #[tokio::test]

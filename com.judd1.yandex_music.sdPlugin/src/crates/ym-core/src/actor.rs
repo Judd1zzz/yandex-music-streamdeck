@@ -118,10 +118,11 @@ async fn actor_loop(mut action: Box<dyn Action>, ctx: ActionCtx, mut cmd_rx: mps
 
             ev = state_rx.recv(), if !state_closed => match ev {
                 Ok(ev) => {
-                    if interests.contains(interest_of(ev.kind())) {
+                    let is_hint = matches!(ev, StateEvent::LaunchHint);
+                    if !is_hint && interests.contains(interest_of(ev.kind())) {
                         action.on_state(&ctx, &ev).await;
                     }
-                    if matches!(ev, StateEvent::Connection(_)) {
+                    if is_hint || matches!(ev, StateEvent::Connection(_)) {
                         ctx.report_status().await;
                     }
                 }

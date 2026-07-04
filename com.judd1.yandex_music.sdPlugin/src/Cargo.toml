@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -50,6 +50,8 @@ sha2 = "0.10"
 aes = "0.8"
 ctr = "0.9"
 lofty = "0.22"
+symphonia = { version = "0.5.5", default-features = false, features = ["flac", "aac", "isomp4"] }
+mp3lame-encoder = "0.2.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 semver = "1"
 self-replace = "1"

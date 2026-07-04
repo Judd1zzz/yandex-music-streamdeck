@@ -50,6 +50,26 @@ fn launch_cache_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join(".ym_client_path"))
 }
 
+fn client_path_report(raw: &str) -> ym_core::ClientPathReport {
+    use ym_launch::resolve::{PathVerdict, check_client_path, client_file_name, current_os, fs_path_kind};
+    let os = current_os();
+    let expected = client_file_name(os);
+    match check_client_path(os, raw, &fs_path_kind) {
+        PathVerdict::Ok => ym_core::ClientPathReport { verdict: "ok", resolved: None, expected },
+        PathVerdict::OkDirCompleted(p) => ym_core::ClientPathReport {
+            verdict: "ok_dir",
+            resolved: Some(p.to_string_lossy().into_owned()),
+            expected,
+        },
+        PathVerdict::Missing => {
+            ym_core::ClientPathReport { verdict: "missing", resolved: None, expected }
+        }
+        PathVerdict::DirWithoutClient => {
+            ym_core::ClientPathReport { verdict: "dir_without_client", resolved: None, expected }
+        }
+    }
+}
+
 fn env_u16(key: &str, default: u16) -> u16 {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
@@ -98,6 +118,8 @@ async fn main() {
     let discord_task = ym_discord::spawn(shared.subscribe(), shared.subscribe_discord(), shutdown.clone());
     let (kick_tx, kick_rx) = mpsc::channel::<()>(4);
     shared.set_launch_kick(kick_tx);
+    shared.set_client_path_checker(Arc::new(client_path_report));
+    let (reason_tx, mut reason_rx) = tokio::sync::watch::channel::<Option<String>>(None);
     let launch_task = ym_launch::spawn(ym_launch::WatcherDeps {
         cdp: Arc::new(CdpPortLink(launch_link)),
         events: shared.subscribe(),
@@ -106,7 +128,15 @@ async fn main() {
         kick: kick_rx,
         ops: Arc::new(ym_launch::RealOps),
         cache_path: launch_cache_path(),
+        reason: reason_tx,
         shutdown: shutdown.clone(),
+    });
+    let reason_shared = shared.clone();
+    let reason_task = tokio::spawn(async move {
+        while reason_rx.changed().await.is_ok() {
+            let v = reason_rx.borrow_and_update().clone();
+            reason_shared.apply_launch_reason(v);
+        }
     });
     let dl_task = tokio::spawn(download_consumer(dl_rx, shared.clone(), shutdown.clone()));
     let factory: ActionFactory = Arc::new(build_action);
@@ -124,13 +154,19 @@ async fn main() {
     let _ = orch_task.await;
     shutdown.cancel();
     update_task.abort();
-    let aborts =
-        [cdp_task.abort_handle(), discord_task.abort_handle(), dl_task.abort_handle(), launch_task.abort_handle()];
+    let aborts = [
+        cdp_task.abort_handle(),
+        discord_task.abort_handle(),
+        dl_task.abort_handle(),
+        launch_task.abort_handle(),
+        reason_task.abort_handle(),
+    ];
     let all = async {
         let _ = cdp_task.await;
         let _ = discord_task.await;
         let _ = dl_task.await;
         let _ = launch_task.await;
+        let _ = reason_task.await;
     };
     if tokio::time::timeout(Duration::from_secs(3), all).await.is_err() {
         tracing::warn!("часть фоновых задач не завершилась за 3с — принудительная отмена");
@@ -162,11 +198,31 @@ async fn download_consumer(mut rx: mpsc::Receiver<String>, shared: Arc<Shared>, 
 
 #[cfg(test)]
 mod tests {
-    use super::{download_consumer, parse_update_repo};
+    use super::{client_path_report, download_consumer, parse_update_repo};
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
     use ym_core::Shared;
+
+    #[test]
+    fn client_path_report_maps_verdicts() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("Яндекс Музыка.app")).unwrap();
+        std::fs::write(dir.path().join("Яндекс Музыка.exe"), b"x").unwrap();
+
+        let rep = client_path_report(&dir.path().to_string_lossy());
+        assert_eq!(rep.verdict, "ok_dir");
+        let resolved = rep.resolved.expect("дополненный путь");
+        assert!(resolved.starts_with(&*dir.path().to_string_lossy()));
+        assert_eq!(
+            rep.expected,
+            ym_launch::resolve::client_file_name(ym_launch::resolve::current_os())
+        );
+
+        let rep = client_path_report(&dir.path().join("nope").to_string_lossy());
+        assert_eq!(rep.verdict, "missing");
+        assert_eq!(rep.resolved, None);
+    }
 
     #[tokio::test]
     async fn download_consumer_exits_on_cancel() {

@@ -25,6 +25,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
+</p>
+
+<p align="center">
   <sub>An unofficial, fan-made project. Not affiliated with, endorsed by, or supported by Yandex or the Yandex Music service. All trademarks belong to their respective owners.</sub>
 </p>
 
@@ -87,6 +92,8 @@ Use the regular links without RUS. On first launch the software will offer to sw
 
 > **Long press:** smooth adjustment on button hold is implemented in code, but may not work on some Stream Deck alternatives. This appears to be a hardware limitation — the press event only fires when the button is released. On original Stream Deck it should work fine, but hasn't been tested yet.
 
+<p align="center"><img src="assets/demo_volume.gif" alt="Volume percentage above the client's slider" width="420"></p>
+
 ### Track Info
 - **Cover + title + artist** — all on one button
 - **Scrolling text** — long titles automatically scroll
@@ -102,6 +109,8 @@ Use the regular links without RUS. On first launch the software will offer to sw
 - **"Download Track" button** on Stream Deck — saves the current track to a file
 - **A button right inside the Yandex Music player** — the plugin adds a download button to the client's player bar, next to like
 - Formats: **Lossless (FLAC/M4A)** or **MP3 320**, with tags and cover art; folder and format are configurable
+
+<p align="center"><img src="assets/demo_download.png" alt="Download button in the Yandex Music player bar" width="640"></p>
 
 ### Auto-update (beta)
 - **Update check on startup** — new versions are pulled from GitHub automatically
@@ -126,6 +135,11 @@ Use the regular links without RUS. On first launch the software will offer to sw
 ## Installation
 
 ### 1. Download the plugin
+
+<p align="center">
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
+</p>
 
 Get the latest release from [Releases](https://github.com/Judd1zzz/yandex-music-streamdeck/releases) and unpack the archive.
 

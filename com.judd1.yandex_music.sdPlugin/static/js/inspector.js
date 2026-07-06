@@ -394,9 +394,35 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
                  updateLocalReason(payload.status === "connected" ? "" : payload.reason);
             } else if (payload.event === "ClientPathCheck") {
                 renderClientPathCheck(payload);
+            } else if (payload.event === "UpdateNotice") {
+                renderUpdateNotice(payload.version);
             }
         }
     };
+}
+
+function openExternal(url) {
+    if (!websocket) return;
+    websocket.send(JSON.stringify({ event: "openUrl", payload: { url: url } }));
+}
+
+function renderUpdateNotice(version) {
+    const el = document.getElementById("update_notice");
+    if (!el) return;
+    const v = (version || "").toString().trim();
+    if (!v) {
+        el.classList.add("hidden");
+        return;
+    }
+    el.textContent = "🔄 Установлено обновление " + v + " — перезапустите Stream Deck. ";
+    const link = document.createElement("span");
+    link.className = "pi-update-link";
+    link.textContent = "Что нового";
+    link.addEventListener("click", function () {
+        openExternal("https://github.com/Judd1zzz/yandex-music-streamdeck/releases/tag/v" + v);
+    });
+    el.appendChild(link);
+    el.classList.remove("hidden");
 }
 
 function updateLocalReason(reason) {

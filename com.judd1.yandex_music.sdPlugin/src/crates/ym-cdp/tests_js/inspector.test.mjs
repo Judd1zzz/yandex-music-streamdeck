@@ -303,6 +303,61 @@ describe('PI: причина проблемы автозапуска', () => {
   });
 });
 
+describe('PI: уведомление об установленном обновлении', () => {
+  function sendNotice(ws, payload) {
+    ws.onmessage({ data: JSON.stringify({ event: 'sendToPropertyInspector', payload }) });
+  }
+
+  test('UpdateNotice показывает русский текст с версией и ссылку', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    const el = window.document.getElementById('update_notice');
+    assert.ok(el.classList.contains('hidden'), 'до уведомления блок скрыт');
+
+    sendNotice(ws, { event: 'UpdateNotice', version: '2.1.3' });
+    assert.ok(!el.classList.contains('hidden'));
+    assert.match(el.textContent, /2\.1\.3/);
+    assert.match(el.textContent, /перезапустите/i);
+    assert.ok(el.querySelector('.pi-update-link'), 'есть ссылка «Что нового»');
+  });
+
+  test('UpdateNotice без версии оставляет блок скрытым', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendNotice(ws, { event: 'UpdateNotice' });
+    const el = window.document.getElementById('update_notice');
+    assert.ok(el.classList.contains('hidden'));
+  });
+
+  test('клик по «Что нового» шлёт openUrl на страницу релиза', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendNotice(ws, { event: 'UpdateNotice', version: '2.1.3' });
+    window.document.querySelector('#update_notice .pi-update-link').click();
+    const open = ws.sent.find((m) => m.event === 'openUrl');
+    assert.ok(open, 'должно уйти событие openUrl');
+    assert.equal(open.payload.url, 'https://github.com/Judd1zzz/yandex-music-streamdeck/releases/tag/v2.1.3');
+  });
+
+  test('повторный UpdateNotice идемпотентен (одна ссылка, свежая версия)', () => {
+    const { window, sockets } = setup();
+    connect(window);
+    const ws = sockets[0];
+    ws.onopen();
+    sendNotice(ws, { event: 'UpdateNotice', version: '2.1.3' });
+    sendNotice(ws, { event: 'UpdateNotice', version: '2.1.4' });
+    const el = window.document.getElementById('update_notice');
+    assert.match(el.textContent, /2\.1\.4/);
+    assert.equal(el.querySelectorAll('.pi-update-link').length, 1);
+  });
+});
+
 describe('PI: живая валидация пути клиента', () => {
   function prepared() {
     const { window, sockets } = setup();

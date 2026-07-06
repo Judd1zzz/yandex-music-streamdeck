@@ -693,8 +693,12 @@
         const like = resolve(ctx, 'like');
         if (!like || !like.parentElement) return;
         const host = like.parentElement;
-        if (host.querySelector('.ym-dl-btn')) return;
         const cs = window.getComputedStyle(like);
+        const existing = host.querySelector('.ym-dl-btn');
+        if (existing) {
+          if (existing.style.color !== cs.color) existing.style.color = cs.color;
+          return;
+        }
         const nsvg = like.querySelector('svg');
         const sw = nsvg ? window.getComputedStyle(nsvg).width : '24px';
         const sh = nsvg ? window.getComputedStyle(nsvg).height : '24px';

@@ -316,6 +316,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_hint_pushes_notice_to_pi() {
+        let (tx, mut rx, shared) = run_orch(Interests::CONNECTION);
+        tx.send(appear("c1")).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 1);
+
+        shared.apply_update_notice("9.9.9".into());
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "LocalStatus");
+            }
+            other => panic!("ожидался LocalStatus, {other:?}"),
+        }
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "UpdateNotice");
+                assert_eq!(payload["version"], "9.9.9");
+            }
+            other => panic!("ожидался UpdateNotice, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn check_client_path_request_is_answered_to_reply_address() {
         let (tx, mut rx, shared) = run_orch(Interests::all());
         shared.set_client_path_checker(Arc::new(|raw: &str| crate::action::ClientPathReport {

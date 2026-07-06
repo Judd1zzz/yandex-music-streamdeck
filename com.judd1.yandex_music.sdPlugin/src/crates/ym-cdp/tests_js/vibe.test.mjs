@@ -133,6 +133,22 @@ describe('Vibe surface (current Yandex Music, verified against live DOM)', () =>
     env.ctrl.stopObservation();
   });
 
+  test('download button: перекрашивается вслед за лайком (ранний инжект в серую страницу)', () => {
+    env = mount(VIBE_HTML, { vibeVisible: true });
+    const doc = env.window.document;
+    const like = doc.querySelector("[data-test-id='LIKE_BUTTON']");
+    like.style.color = 'rgb(122, 122, 122)';
+    env.ctrl._updateDownloadButton();
+    const btn = doc.querySelector('.ym-dl-btn');
+    assert.equal(btn.style.color, 'rgb(122, 122, 122)');
+
+    like.style.color = 'rgb(255, 255, 255)';
+    env.ctrl._updateDownloadButton();
+    assert.equal(btn.style.color, 'rgb(255, 255, 255)');
+    assert.equal(doc.querySelector('.ym-dl-btn'), btn);
+    assert.equal(doc.querySelectorAll('.ym-dl-btn').length, 1);
+  });
+
   test('track id/title/artist/cover берутся из стора и бьют DOM (Vibe)', () => {
     env = mount(VIBE_HTML, { vibeVisible: true });
     const doc = env.window.document;

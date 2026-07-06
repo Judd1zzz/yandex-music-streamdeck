@@ -10,6 +10,7 @@ pub enum StateEvent {
     Volume(VolumeData),
     Download { active: bool },
     LaunchHint,
+    UpdateHint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,6 +23,7 @@ pub enum StateKind {
     Volume,
     Download,
     LaunchHint,
+    UpdateHint,
 }
 
 impl StateEvent {
@@ -35,6 +37,18 @@ impl StateEvent {
             StateEvent::Volume(_) => StateKind::Volume,
             StateEvent::Download { .. } => StateKind::Download,
             StateEvent::LaunchHint => StateKind::LaunchHint,
+            StateEvent::UpdateHint => StateKind::UpdateHint,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_hint_kind() {
+        assert_eq!(StateEvent::UpdateHint.kind(), StateKind::UpdateHint);
+        assert_eq!(StateEvent::LaunchHint.kind(), StateKind::LaunchHint);
     }
 }

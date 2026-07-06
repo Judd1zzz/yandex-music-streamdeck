@@ -29,6 +29,10 @@ pub fn local_status_payload(status: LocalStatus, reason: Option<&str>) -> Value 
     }
 }
 
+pub fn update_notice_payload(version: &str) -> Value {
+    serde_json::json!({ "event": "UpdateNotice", "version": version })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApplySettingsPayload {
     pub event: String,
@@ -69,6 +73,11 @@ mod tests {
             local_status_payload(LocalStatus::Disconnected, Some("клиент запущен от администратора")),
             json!({"event":"LocalStatus","status":"disconnected","reason":"клиент запущен от администратора"})
         );
+    }
+
+    #[test]
+    fn update_notice_payload_shape() {
+        assert_eq!(update_notice_payload("2.1.3"), json!({"event":"UpdateNotice","version":"2.1.3"}));
     }
 
     #[test]

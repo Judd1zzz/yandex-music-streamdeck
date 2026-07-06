@@ -25,6 +25,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Скачать%20для%20Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Скачать для Windows"></a>
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Скачать%20для%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Скачать для macOS"></a>
+</p>
+
+<p align="center">
   <sub>Неофициальный любительский проект. Не связан с компанией Яндекс и сервисом Яндекс Музыка и не поддерживается ими. Все упомянутые товарные знаки принадлежат их правообладателям.</sub>
 </p>
 
@@ -87,6 +92,8 @@
 
 > **Длинное нажатие:** в коде реализована плавная регулировка при зажатии кнопки, но на некоторых аналогах Stream Deck она может не работать. Судя по всему, это техническое ограничение устройств — событие нажатия приходит только в момент отпускания кнопки. На оригинальном Stream Deck, скорее всего, всё будет нормально, но пока не проверено.
 
+<p align="center"><img src="assets/demo_volume.gif" alt="Проценты громкости над ползунком клиента" width="420"></p>
+
 ### Информация о треке
 - **Обложка + название + исполнитель** — всё на одной кнопке
 - **Бегущая строка** — длинные названия автоматически прокручиваются
@@ -102,6 +109,8 @@
 - **Кнопка «Скачать трек»** на Stream Deck — сохраняет текущий трек в файл
 - **Кнопка прямо в плеере Яндекс Музыки** — плагин добавляет кнопку скачивания в плеер-бар клиента, рядом с лайком
 - Форматы: **Lossless (FLAC/M4A)** или **MP3 320**, с тегами и обложкой; папка и формат настраиваются
+
+<p align="center"><img src="assets/demo_download.png" alt="Кнопка скачивания в плеер-баре Яндекс Музыки" width="640"></p>
 
 ### Автообновление (бета)
 - **Проверка обновлений при запуске** — новые версии подтягиваются с GitHub автоматически
@@ -126,6 +135,11 @@
 ## Установка
 
 ### 1. Скачайте плагин
+
+<p align="center">
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Скачать%20для%20Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Скачать для Windows"></a>
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Скачать%20для%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Скачать для macOS"></a>
+</p>
 
 Возьмите последний релиз из [Releases](https://github.com/Judd1zzz/yandex-music-streamdeck/releases) и распакуйте архив.
 

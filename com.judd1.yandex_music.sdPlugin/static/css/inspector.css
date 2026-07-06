@@ -327,6 +327,21 @@ input[type=number]::-webkit-outer-spin-button {
 .pi-path-warn { color: #e6b35a; }
 .pi-path-err { color: #e57373; }
 
+.pi-update-notice {
+    margin: 4px 4px 8px;
+    padding: 6px 8px;
+    color: #7bc47f;
+    background: rgba(123, 196, 127, 0.12);
+    border-radius: 4px;
+    line-height: 1.35;
+}
+
+.pi-update-link {
+    color: #9ecbff;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
 .toast {
     position: fixed;
     bottom: 10px;

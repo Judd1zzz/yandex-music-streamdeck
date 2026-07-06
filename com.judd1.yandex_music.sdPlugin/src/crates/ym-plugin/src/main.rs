@@ -91,11 +91,6 @@ async fn main() {
     single_instance::ensure_single_instance();
     tracing::info!("Plugin Start (ym-plugin {})", env!("CARGO_PKG_VERSION"));
 
-    let (upd_owner, upd_repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
-    let update_task = tokio::spawn(async move {
-        ym_update::run(&upd_owner, &upd_repo, env!("CARGO_PKG_VERSION")).await;
-    });
-
     let args = match LaunchArgs::parse() {
         Ok(a) => a,
         Err(e) => {
@@ -119,6 +114,13 @@ async fn main() {
     let (kick_tx, kick_rx) = mpsc::channel::<()>(4);
     shared.set_launch_kick(kick_tx);
     shared.set_client_path_checker(Arc::new(client_path_report));
+    let (upd_owner, upd_repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
+    let update_shared = shared.clone();
+    let update_task = tokio::spawn(async move {
+        if let Some(v) = ym_update::run(&upd_owner, &upd_repo, env!("CARGO_PKG_VERSION")).await {
+            update_shared.apply_update_notice(v);
+        }
+    });
     let (reason_tx, mut reason_rx) = tokio::sync::watch::channel::<Option<String>>(None);
     let launch_task = ym_launch::spawn(ym_launch::WatcherDeps {
         cdp: Arc::new(CdpPortLink(launch_link)),

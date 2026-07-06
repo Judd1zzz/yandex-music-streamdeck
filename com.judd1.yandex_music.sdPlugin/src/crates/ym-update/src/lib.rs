@@ -210,19 +210,28 @@ async fn check_and_apply(owner: &str, repo: &str, current: &str) -> Result<Optio
     Ok(Some(version))
 }
 
-pub async fn run(owner: &str, repo: &str, current: &str) {
+pub async fn run(owner: &str, repo: &str, current: &str) -> Option<String> {
     if !looks_installed() {
         tracing::debug!("ym-update: бинарь не в каталоге bin/ — автообновление пропущено");
-        return;
+        return None;
     }
     if let Ok(dir) = plugin_dir() {
         cleanup_stale(&dir);
         cleanup_legacy(&dir);
     }
     match check_and_apply(owner, repo, current).await {
-        Ok(Some(v)) => tracing::info!("ym-update: применено обновление {v} (вступит в силу при следующем запуске)"),
-        Ok(None) => tracing::debug!("ym-update: обновлений нет (текущая {current})"),
-        Err(e) => tracing::warn!("ym-update: {e:#}"),
+        Ok(Some(v)) => {
+            tracing::info!("ym-update: применено обновление {v} (вступит в силу при следующем запуске)");
+            Some(v)
+        }
+        Ok(None) => {
+            tracing::debug!("ym-update: обновлений нет (текущая {current})");
+            None
+        }
+        Err(e) => {
+            tracing::warn!("ym-update: {e:#}");
+            None
+        }
     }
 }
 
@@ -432,5 +441,11 @@ mod tests {
 
         cleanup_legacy(dir);
         assert!(dir.join("bin/ym-plugin").exists(), "повторный вызов безопасен");
+    }
+
+    #[tokio::test]
+    async fn run_returns_none_when_not_installed() {
+        assert!(!looks_installed(), "тестовый бинарь не должен выглядеть установленным");
+        assert_eq!(run("owner", "repo", "0.0.1").await, None);
     }
 }

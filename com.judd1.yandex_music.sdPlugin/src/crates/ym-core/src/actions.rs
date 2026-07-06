@@ -83,4 +83,52 @@ mod tests {
         shared.apply_launch_reason(None);
         assert_eq!(bus.recv().await.unwrap(), ym_model::StateEvent::LaunchHint);
     }
+
+    #[tokio::test]
+    async fn apply_update_notice_publishes_hint_once() {
+        let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
+        let mut bus = shared.subscribe();
+        shared.apply_update_notice("2.1.3".into());
+        assert_eq!(bus.recv().await.unwrap(), ym_model::StateEvent::UpdateHint);
+        shared.apply_update_notice("2.1.3".into());
+        assert!(bus.try_recv().is_err(), "повтор той же версии не публикует событие");
+        shared.apply_update_notice("2.1.4".into());
+        assert_eq!(bus.recv().await.unwrap(), ym_model::StateEvent::UpdateHint);
+    }
+
+    #[tokio::test]
+    async fn report_status_appends_update_notice_local() {
+        let (shared, _c) = MockController { connected: true, state: MediaState::default(), calls: Default::default() }.shared();
+        let (ctx, mut rx) = make_ctx(shared.clone());
+        ctx.report_status().await;
+        assert_pi_status(&rx.recv().await.unwrap(), "LocalStatus", "connected");
+        assert!(rx.try_recv().is_err(), "без обновления второго сообщения нет");
+
+        shared.apply_update_notice("2.1.3".into());
+        ctx.report_status().await;
+        assert_pi_status(&rx.recv().await.unwrap(), "LocalStatus", "connected");
+        match &rx.recv().await.unwrap() {
+            sd_protocol::Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "UpdateNotice");
+                assert_eq!(payload["version"], "2.1.3");
+            }
+            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn report_status_appends_update_notice_ynison() {
+        let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
+        shared.apply_update_notice("3.0.0".into());
+        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
+        ctx.report_status().await;
+        assert_pi_status(&rx.recv().await.unwrap(), "TokenStatus", "missing");
+        match &rx.recv().await.unwrap() {
+            sd_protocol::Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "UpdateNotice");
+                assert_eq!(payload["version"], "3.0.0");
+            }
+            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
+        }
+    }
 }

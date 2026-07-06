@@ -35,6 +35,7 @@ pub fn interest_of(kind: StateKind) -> Interests {
         StateKind::Volume => Interests::VOLUME,
         StateKind::Download => Interests::DOWNLOAD,
         StateKind::LaunchHint => Interests::CONNECTION,
+        StateKind::UpdateHint => Interests::CONNECTION,
     }
 }
 
@@ -51,6 +52,7 @@ pub struct Shared {
     any_local: Arc<AtomicBool>,
     launch_kick: RwLock<Option<mpsc::Sender<()>>>,
     launch_reason: RwLock<Option<String>>,
+    update_notice: RwLock<Option<String>>,
     path_checker: RwLock<Option<ClientPathChecker>>,
     download: RwLock<(String, String)>,
     active_downloads: AtomicUsize,
@@ -103,6 +105,7 @@ impl Shared {
             any_local: Arc::new(AtomicBool::new(false)),
             launch_kick: RwLock::new(None),
             launch_reason: RwLock::new(None),
+            update_notice: RwLock::new(None),
             path_checker: RwLock::new(None),
             download: RwLock::new((String::new(), "lossless".to_owned())),
             active_downloads: AtomicUsize::new(0),
@@ -163,6 +166,22 @@ impl Shared {
     pub fn apply_launch_reason(&self, v: Option<String>) {
         if self.set_launch_reason(v) {
             self.publish(StateEvent::LaunchHint);
+        }
+    }
+    pub fn update_notice(&self) -> Option<String> {
+        self.update_notice.read().expect("update notice lock").clone()
+    }
+    pub fn set_update_notice(&self, v: Option<String>) -> bool {
+        let mut g = self.update_notice.write().expect("update notice lock");
+        if *g == v {
+            return false;
+        }
+        *g = v;
+        true
+    }
+    pub fn apply_update_notice(&self, version: String) {
+        if self.set_update_notice(Some(version)) {
+            self.publish(StateEvent::UpdateHint);
         }
     }
     pub fn set_client_path_checker(&self, f: ClientPathChecker) {
@@ -285,6 +304,9 @@ impl ActionCtx {
                 };
                 self.send_token_status(s).await;
             }
+        }
+        if let Some(v) = self.shared.update_notice() {
+            self.send_to_pi(sd_protocol::update_notice_payload(&v)).await;
         }
     }
     pub async fn log(&self, message: impl Into<String>) {

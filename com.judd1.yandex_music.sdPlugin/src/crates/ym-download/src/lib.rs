@@ -17,6 +17,8 @@ const CLIENT_HEADER: &str = "YandexMusicDesktopAppWindows/5.85.0";
 const CODECS: [&str; 7] = ["flac", "aac", "he-aac", "mp3", "flac-mp4", "aac-mp4", "he-aac-mp4"];
 const TRANSPORTS: [&str; 1] = ["encraw"];
 const QUALITY: &str = "lossless";
+const MP3_CODECS: [&str; 1] = ["mp3"];
+const MP3_QUALITY: &str = "hq";
 
 struct DownloadInfo {
     url: String,
@@ -80,16 +82,23 @@ fn parse_download_info(v: &Value) -> Result<DownloadInfo> {
     })
 }
 
-async fn get_file_info(client: &reqwest::Client, base: &str, token: &str, track_id: &str) -> Result<DownloadInfo> {
+async fn get_file_info(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    track_id: &str,
+    quality: &str,
+    codecs: &[&str],
+) -> Result<DownloadInfo> {
     let ts = unix_secs();
-    let sign_str = sign::file_info_sign_str(ts, track_id, QUALITY, &CODECS, &TRANSPORTS);
+    let sign_str = sign::file_info_sign_str(ts, track_id, quality, codecs, &TRANSPORTS);
     let sg = sign::sign(sign::SECRET, &sign_str);
-    let (ts_s, codecs_s, transports_s) = (ts.to_string(), CODECS.join(","), TRANSPORTS.join(","));
+    let (ts_s, codecs_s, transports_s) = (ts.to_string(), codecs.join(","), TRANSPORTS.join(","));
     let resp = headers(client.get(format!("{base}get-file-info")), token)
         .query(&[
             ("trackId", track_id),
             ("ts", ts_s.as_str()),
-            ("quality", QUALITY),
+            ("quality", quality),
             ("codecs", codecs_s.as_str()),
             ("transports", transports_s.as_str()),
             ("sign", sg.as_str()),
@@ -100,6 +109,32 @@ async fn get_file_info(client: &reqwest::Client, base: &str, token: &str, track_
         .json::<Value>()
         .await?;
     parse_download_info(&resp)
+}
+
+fn usable_as_mp3(info: &DownloadInfo) -> bool {
+    info.codec.trim().eq_ignore_ascii_case("mp3")
+}
+
+fn accept_direct_mp3(res: Result<DownloadInfo>) -> Option<DownloadInfo> {
+    match res {
+        Ok(info) if usable_as_mp3(&info) => Some(info),
+        Ok(info) => {
+            tracing::info!(codec = %info.codec, "direct mp3 unavailable, falling back to lossless transcode");
+            None
+        }
+        Err(e) => {
+            tracing::info!(error = %e, "direct mp3 request failed, falling back to lossless transcode");
+            None
+        }
+    }
+}
+
+async fn get_mp3_or_lossless_info(client: &reqwest::Client, base: &str, token: &str, track_id: &str) -> Result<DownloadInfo> {
+    let direct = get_file_info(client, base, token, track_id, MP3_QUALITY, &MP3_CODECS).await;
+    match accept_direct_mp3(direct) {
+        Some(info) => Ok(info),
+        None => get_file_info(client, base, token, track_id, QUALITY, &CODECS).await,
+    }
 }
 
 async fn get_track_meta(client: &reqwest::Client, base: &str, token: &str, track_id: &str) -> Result<TrackMeta> {
@@ -162,7 +197,11 @@ pub fn is_mp3_format(format: &str) -> bool {
 
 async fn download_track_with_base(base: &str, track_id: &str, token: &str, dest_dir: &Path, mp3: bool) -> Result<PathBuf> {
     let client = reqwest::Client::new();
-    let info = get_file_info(&client, base, token, track_id).await?;
+    let info = if mp3 {
+        get_mp3_or_lossless_info(&client, base, token, track_id).await?
+    } else {
+        get_file_info(&client, base, token, track_id, QUALITY, &CODECS).await?
+    };
     let meta = get_track_meta(&client, base, token, track_id).await?;
 
     let mut bytes = client.get(&info.url).send().await?.error_for_status()?.bytes().await?.to_vec();
@@ -236,6 +275,32 @@ mod tests {
 
         assert!(parse_download_info(&json!({"downloadInfo": {"url": ""}})).is_err());
         assert!(parse_download_info(&json!({})).is_err());
+    }
+
+    fn info_with_codec(codec: &str) -> DownloadInfo {
+        DownloadInfo {
+            url: "https://x/f".to_owned(),
+            codec: codec.to_owned(),
+            transport: "encraw".to_owned(),
+            key: String::new(),
+        }
+    }
+
+    #[test]
+    fn usable_as_mp3_checks_codec_only() {
+        assert!(usable_as_mp3(&info_with_codec("mp3")));
+        assert!(usable_as_mp3(&info_with_codec(" MP3 ")));
+        assert!(!usable_as_mp3(&info_with_codec("flac")));
+        assert!(!usable_as_mp3(&info_with_codec("aac-mp4")));
+        assert!(!usable_as_mp3(&info_with_codec("")));
+    }
+
+    #[test]
+    fn accept_direct_mp3_takes_only_ok_mp3() {
+        assert!(accept_direct_mp3(Ok(info_with_codec("mp3"))).is_some());
+        assert!(accept_direct_mp3(Ok(info_with_codec("flac"))).is_none());
+        assert!(accept_direct_mp3(Ok(info_with_codec("he-aac-mp4"))).is_none());
+        assert!(accept_direct_mp3(Err(anyhow!("boom"))).is_none());
     }
 
     #[test]

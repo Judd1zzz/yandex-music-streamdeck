@@ -28,6 +28,12 @@ mod tests {
     }
 
     #[test]
+    fn sign_str_for_direct_mp3_request() {
+        let s = file_info_sign_str(1700000000, "777", "hq", &["mp3"], &["encraw"]);
+        assert_eq!(s, "1700000000777hqmp3encraw");
+    }
+
+    #[test]
     fn sign_is_base64_minus_last_char_stable_vector() {
         let s = sign(SECRET, "170000000012345losslessflacaacencraw");
         assert_eq!(s, "OtcJx9+Q9q4NGp/oZjrV1kQuls+FNFCDLyG4Ju0GmRM");

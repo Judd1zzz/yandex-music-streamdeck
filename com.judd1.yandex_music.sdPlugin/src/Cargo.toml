@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.1.0"
+version = "2.1.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -75,3 +75,33 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.release.package.mp3lame-sys]
+opt-level = 3
+
+[profile.release.package.mp3lame-encoder]
+opt-level = 3
+
+[profile.release.package.symphonia]
+opt-level = 3
+
+[profile.release.package.symphonia-core]
+opt-level = 3
+
+[profile.release.package.symphonia-bundle-flac]
+opt-level = 3
+
+[profile.release.package.symphonia-codec-aac]
+opt-level = 3
+
+[profile.release.package.symphonia-format-isomp4]
+opt-level = 3
+
+[profile.release.package.symphonia-metadata]
+opt-level = 3
+
+[profile.release.package.symphonia-utils-xiph]
+opt-level = 3

@@ -1,9 +1,16 @@
 use anyhow::{Result, anyhow};
-use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, InterleavedPcm, MonoPcm, Quality};
+use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, InterleavedPcm, MonoPcm};
+pub use mp3lame_encoder::Quality;
 
 use crate::decode::Pcm;
 
+const QUALITY: Quality = Quality::VeryNice;
+
 pub fn encode_320(pcm: &Pcm) -> Result<Vec<u8>> {
+    encode_320_with(pcm, QUALITY)
+}
+
+pub fn encode_320_with(pcm: &Pcm, quality: Quality) -> Result<Vec<u8>> {
     if pcm.channels == 0 || pcm.channels > 2 {
         return Err(anyhow!("неподдерживаемое число каналов: {}", pcm.channels));
     }
@@ -11,7 +18,7 @@ pub fn encode_320(pcm: &Pcm) -> Result<Vec<u8>> {
     b.set_sample_rate(pcm.rate).map_err(|e| anyhow!("lame: частота {}: {e:?}", pcm.rate))?;
     b.set_num_channels(pcm.channels as u8).map_err(|e| anyhow!("lame: каналы: {e:?}"))?;
     b.set_brate(Bitrate::Kbps320).map_err(|e| anyhow!("lame: битрейт: {e:?}"))?;
-    b.set_quality(Quality::Best).map_err(|e| anyhow!("lame: качество: {e:?}"))?;
+    b.set_quality(quality).map_err(|e| anyhow!("lame: качество: {e:?}"))?;
     let mut enc = b.build().map_err(|e| anyhow!("lame: сборка энкодера: {e:?}"))?;
 
     let mut out = Vec::new();
@@ -52,6 +59,14 @@ mod tests {
     #[test]
     fn encodes_stereo_sine_to_mp3() {
         let mp3 = encode_320(&sine_pcm(2, 44100, 0.3)).unwrap();
+        assert!(mp3.len() > 4000, "0.3с при 320kbps ≈ 12КБ, получили {}", mp3.len());
+        let sync = mp3.windows(2).any(|w| w[0] == 0xFF && w[1] & 0xE0 == 0xE0);
+        assert!(sync, "в выводе должен быть mpeg frame sync");
+    }
+
+    #[test]
+    fn encodes_with_explicit_quality() {
+        let mp3 = encode_320_with(&sine_pcm(2, 44100, 0.3), Quality::VeryNice).unwrap();
         assert!(mp3.len() > 4000, "0.3с при 320kbps ≈ 12КБ, получили {}", mp3.len());
         let sync = mp3.windows(2).any(|w| w[0] == 0xFF && w[1] & 0xE0 == 0xE0);
         assert!(sync, "в выводе должен быть mpeg frame sync");

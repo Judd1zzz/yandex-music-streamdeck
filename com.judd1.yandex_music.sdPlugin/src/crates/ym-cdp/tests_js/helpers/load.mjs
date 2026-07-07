@@ -8,7 +8,7 @@ const SRC_PATH = join(here, '..', '..', 'assets', 'injected_api.js');
 const SRC = readFileSync(SRC_PATH, 'utf8');
 
 export function mount(html, opts = {}) {
-  const { externalAPI = null, vibeVisible = false } = opts;
+  const { externalAPI = null, vibeVisible = false, noDownloadUi = false } = opts;
 
   const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
@@ -19,12 +19,13 @@ export function mount(html, opts = {}) {
   };
 
   if (externalAPI) window.externalAPI = externalAPI;
+  if (noDownloadUi) window.__ymNoDownloadUi = true;
 
   window.Element.prototype.getBoundingClientRect = function () {
     let visible = false;
     try {
       visible = vibeVisible && typeof this.matches === 'function'
-        && this.matches('[class*="VibePlayerControls_root"]');
+        && this.matches('[class*="VibePlayerControls_root"], [data-test-id="VIBE_PLAYERBAR"]');
     } catch { visible = false; }
     const w = visible ? 200 : 0;
     const h = visible ? 50 : 0;

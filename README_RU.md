@@ -27,6 +27,7 @@
 <p align="center">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Скачать%20для%20Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Скачать для Windows"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Скачать%20для%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Скачать для macOS"></a>
+  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/StreamDock%20Store-Установить-6E56CF?style=for-the-badge" alt="Установить из StreamDock Store"></a>
 </p>
 
 <p align="center">
@@ -134,7 +135,24 @@
 
 ## Установка
 
-### 1. Скачайте плагин
+### ⚡ Быстрая установка — StreamDock Store (Mirabox/Ajazz)
+
+<p align="center">
+  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/StreamDock%20Store-Установить-6E56CF?style=for-the-badge" alt="Установить из StreamDock Store"></a>
+</p>
+
+Плагин доступен в официальном StreamDock Store — без архивов и терминала:
+
+1. Войдите (или бесплатно зарегистрируйтесь) на [space.key123.vip](https://space.key123.vip) и откройте [страницу плагина](https://space.key123.vip/product/20260706002752).
+2. Нажмите **Open Software** — приложение StreamDock откроется, скачает и установит плагин автоматически.
+
+> Нужен StreamDock **3.10.185.1120 или новее** и вход в аккаунт Mirabox Space в самом приложении. Внутри приложения плагин живёт в разделе **Space** (не в старой вкладке «Store»). На macOS этот способ не требует снятия карантина.
+>
+> Софт Elgato — или хочется поставить руками? Шаги 1–4 ниже.
+
+---
+
+### 1. Скачайте плагин (ручная установка)
 
 <p align="center">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Скачать%20для%20Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Скачать для Windows"></a>

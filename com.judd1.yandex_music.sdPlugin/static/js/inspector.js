@@ -311,41 +311,46 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI, ynisonGuard);
         initGlobalSelect("download_format_selected", "download_format_items", "download_format");
 
-        const action = actionInfo.action;
-        if (action === "com.judd1.yandex_music.action.info") {
+        const rawAction = String(actionInfo.action || '');
+        const action = rawAction.replace(/_/g, '-');
+        if (rawAction.indexOf('.yandex-music.') !== -1) {
+            const dlBlock = document.getElementById('download_global_block');
+            if (dlBlock) dlBlock.classList.add('hidden');
+        }
+        if (action === "com.judd1.yandex-music.action.info") {
             document.getElementById('info_settings').classList.remove('hidden');
-        } else if (action === "com.judd1.yandex_music.action.like") {
+        } else if (action === "com.judd1.yandex-music.action.like") {
             document.getElementById('like_settings').classList.remove('hidden');
             initCustomSelect("like_style_selected", "like_style_items", "like_style");
-        } else if (action === "com.judd1.yandex_music.action.dislike") {
+        } else if (action === "com.judd1.yandex-music.action.dislike") {
             document.getElementById('dislike_settings').classList.remove('hidden');
             initCustomSelect("dislike_style_selected", "dislike_style_items", "dislike_style");
-        } else if (action === "com.judd1.yandex_music.action.next") {
+        } else if (action === "com.judd1.yandex-music.action.next") {
             document.getElementById('next_settings').classList.remove('hidden');
             initCustomSelect("next_style_selected", "next_style_items", "next_style");
-        } else if (action === "com.judd1.yandex_music.action.prev") {
+        } else if (action === "com.judd1.yandex-music.action.prev") {
             document.getElementById('prev_settings').classList.remove('hidden');
             initCustomSelect("prev_style_selected", "prev_style_items", "prev_style");
-        } else if (action === "com.judd1.yandex_music.action.playpause") {
+        } else if (action === "com.judd1.yandex-music.action.playpause") {
             document.getElementById('play_settings').classList.remove('hidden');
             initCustomSelect("play_style_selected", "play_style_items", "play_style");
-        } else if (action === "com.judd1.yandex_music.action.progress") {
+        } else if (action === "com.judd1.yandex-music.action.progress") {
             document.getElementById('progress_settings').classList.remove('hidden');
             initCustomSelect("progress_mode_selected", "progress_mode_items", "progress_mode");
-        } else if (action === "com.judd1.yandex_music.action.mute") {
+        } else if (action === "com.judd1.yandex-music.action.mute") {
             document.getElementById('mute_settings').classList.remove('hidden');
             initCustomSelect("mute_style_selected", "mute_style_items", "mute_style");
-        } else if (action === "com.judd1.yandex_music.action.volumeup" ||
-                   action === "com.judd1.yandex_music.action.volumedown" ||
-                   action === "com.judd1.yandex_music.action.volume_display") {
+        } else if (action === "com.judd1.yandex-music.action.volumeup" ||
+                   action === "com.judd1.yandex-music.action.volumedown" ||
+                   action === "com.judd1.yandex-music.action.volume-display") {
             document.getElementById('volume_settings').classList.remove('hidden');
             initCustomSelect("volume_style_selected", "volume_style_items", "volume_style");
-        } else if (action === "com.judd1.yandex_music.action.volume_knob") {
+        } else if (action === "com.judd1.yandex-music.action.volume-knob") {
             document.getElementById('knob_settings').classList.remove('hidden');
             document.getElementById('volume_settings').classList.remove('hidden');
             initCustomSelect("knob_press_selected", "knob_press_items", "knob_press");
             initCustomSelect("volume_style_selected", "volume_style_items", "volume_style");
-        } else if (action === "com.judd1.yandex_music.action.download") {
+        } else if (action === "com.judd1.yandex-music.action.download") {
             document.getElementById('download_settings').classList.remove('hidden');
             initCustomSelect("download_style_selected", "download_style_items", "download_style");
         }

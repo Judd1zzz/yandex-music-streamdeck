@@ -5,7 +5,7 @@
   const PROGRESS_MS = 500;
   const VOL_STEP = 0.05;
 
-  const VIBE_GATE = "[class*='VibePlayerControls_root']";
+  const VIBE_GATE = ["[data-test-id='VIBE_PLAYERBAR']", "[class*='VibePlayerControls_root']"];
 
   const ROOT = {
     sonata: ["[data-test-id='PLAYERBAR_DESKTOP']", "div[class*='PlayerBarDesktop']", "section[class*='PlayerBarDesktop']"],
@@ -49,14 +49,19 @@
       sonata: { sel: ["[data-test-id='DISLIKE_BUTTON']", "button[class*='dislike']"], button: true },
     },
     timeline: {
-      vibe: ["[data-test-id='VIBE_PLAYERBAR_TIMECODE_SLIDER'] input[type='range']", "[class*='VibePlayerbarMeta_slider']"],
+      vibe: ["[data-test-id='VIBE_PLAYERBAR_TIMECODE_SLIDER'] input[type='range']", "input[data-test-id='TIMECODE_SLIDER']", "[class*='VibePlayerbarMeta_slider']"],
       sonata: ["input[data-test-id='TIMECODE_SLIDER']", "input[type='range']"],
     },
     timeNow: {
+      vibe: ["[data-test-id='TIMECODE_TIME_START']"],
       sonata: ["[data-test-id='TIMECODE_TIME_START']"],
     },
     timeEnd: {
+      vibe: ["[data-test-id='TIMECODE_TIME_END']"],
       sonata: ["[data-test-id='TIMECODE_TIME_END']"],
+    },
+    timePair: {
+      vibe: ["[data-test-id='VIBE_PLAYERBAR_TIMECODE']"],
     },
     volume: {
       vibe: { scope: "[class*='ChangeVolume_root']", sel: ["input[data-test-id='CHANGE_VOLUME_SLIDER']", "input[class*='ChangeVolume_slider']", "input[type='range']"] },
@@ -237,7 +242,7 @@
   }
 
   function buildCtx() {
-    const isVibe = visible(document.querySelector(VIBE_GATE));
+    const isVibe = VIBE_GATE.some((s) => visible(document.querySelector(s)));
     const sonataRoot = q(document, ROOT.sonata);
     const vibeRoot = q(document, ROOT.vibe);
     const activeRoot = isVibe ? (vibeRoot || sonataRoot) : (sonataRoot || vibeRoot);
@@ -349,8 +354,17 @@
         } else {
           const nowEl = resolve(ctx, 'timeNow');
           const endEl = resolve(ctx, 'timeEnd');
-          now = toSec(nowEl ? nowEl.textContent : '0:00');
-          duration = toSec(endEl ? endEl.textContent : '0:00');
+          if (nowEl || endEl) {
+            now = toSec(nowEl ? nowEl.textContent : '0:00');
+            duration = toSec(endEl ? endEl.textContent : '0:00');
+          } else {
+            const pairEl = resolve(ctx, 'timePair');
+            const parts = pairEl && pairEl.textContent ? pairEl.textContent.split('/') : [];
+            if (parts.length === 2) {
+              now = toSec(parts[0].trim());
+              duration = toSec(parts[1].trim());
+            }
+          }
           progress = duration > 0 ? now / duration : 0;
         }
       }
@@ -664,6 +678,7 @@
     }
 
     downloadCurrent() {
+      if (window.__ymNoDownloadUi) return { success: false, error: 'Downloads disabled in this build' };
       try {
         const ctx = buildCtx();
         const track = readTrack(ctx);
@@ -681,6 +696,7 @@
     }
 
     _updateDownloadButton() {
+      if (window.__ymNoDownloadUi) return;
       try {
         if (!document.getElementById('ym-dl-style')) {
           const st = document.createElement('style');

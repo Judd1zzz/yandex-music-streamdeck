@@ -5,7 +5,12 @@ pub mod discovery;
 pub use commands::LocalCommand;
 pub use controller::{CdpController, CdpError};
 
+#[cfg(feature = "download-button")]
 pub const INJECTED_API_JS: &str = include_str!("../assets/injected_api.js");
+
+#[cfg(not(feature = "download-button"))]
+pub const INJECTED_API_JS: &str =
+    concat!("window.__ymNoDownloadUi=true;", include_str!("../assets/injected_api.js"));
 
 pub const JS_CONTROLLER_NAME: &str = "window._PyYMController";
 

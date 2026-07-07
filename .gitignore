@@ -13,5 +13,8 @@ node_modules/
 package-lock.json
 
 com.judd1.yandex_music.sdPlugin/bin/*
+com.judd1.yandex_music.sdPlugin/tools/*
+!com.judd1.yandex_music.sdPlugin/tools/build_macos.sh
+!com.judd1.yandex_music.sdPlugin/tools/build_windows.bat
 
 release/

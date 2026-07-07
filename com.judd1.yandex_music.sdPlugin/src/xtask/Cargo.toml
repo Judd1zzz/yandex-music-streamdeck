@@ -9,3 +9,5 @@ publish = false
 anyhow.workspace = true
 zip.workspace = true
 ym-model.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+image.workspace = true

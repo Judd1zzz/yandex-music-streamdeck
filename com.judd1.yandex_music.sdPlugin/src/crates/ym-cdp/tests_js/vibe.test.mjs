@@ -1,7 +1,7 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mount, close, clickSpy } from './helpers/load.mjs';
-import { VIBE_HTML, SONATA_PLUS_HIDDEN_VIBE_HTML, VIBE_MY_VIBE_PAUSED_HTML } from './fixtures/vibe.mjs';
+import { VIBE_HTML, SONATA_PLUS_HIDDEN_VIBE_HTML, VIBE_MY_VIBE_PAUSED_HTML, VIBE_TESTID_ONLY_HTML, VIBE_TESTID_ONLY_WITH_SLIDER_HTML } from './fixtures/vibe.mjs';
 
 describe('Vibe surface (current Yandex Music, verified against live DOM)', () => {
   let env;
@@ -235,5 +235,37 @@ describe('Vibe surface (current Yandex Music, verified against live DOM)', () =>
     close(env);
     env = mount(SONATA_PLUS_HIDDEN_VIBE_HTML, { vibeVisible: true });
     assert.equal(env.ctrl.getFullState().data.track.title, 'Vibe Track');
+  });
+
+  test('download button: не создаётся при window.__ymNoDownloadUi (маркетплейс-сборка)', () => {
+    env = mount(VIBE_HTML, { vibeVisible: true, noDownloadUi: true });
+    env.ctrl._updateDownloadButton();
+    assert.equal(env.window.document.querySelectorAll('.ym-dl-btn').length, 0);
+    const r = env.ctrl.downloadCurrent();
+    assert.equal(r.success, false);
+    assert.equal(env.notes.some((n) => n && n.type === 'DOWNLOAD'), false);
+  });
+
+  test('test-id-only Vibe: без хеш-классов гейт, тайтл, обложка и таймкод-пара живы', () => {
+    env = mount(VIBE_TESTID_ONLY_HTML, { vibeVisible: true });
+    const r = env.ctrl.getFullState();
+    assert.equal(r.success, true);
+    assert.equal(r.data.track.title, 'Faded');
+    assert.equal(r.data.state.playing, true);
+    assert.equal(r.data.state.liked, false);
+    assert.ok(r.data.track.cover.includes('/400x400'));
+    assert.equal(r.data.progress.now_sec, 38);
+    assert.equal(r.data.progress.total_sec, 179);
+  });
+
+  test('test-id-only Vibe: слайдер TIMECODE_SLIDER приоритетнее таймкод-пары и не трогается громкостью', () => {
+    env = mount(VIBE_TESTID_ONLY_WITH_SLIDER_HTML, { vibeVisible: true });
+    const r = env.ctrl.getFullState();
+    assert.equal(r.data.progress.now_sec, 50);
+    assert.equal(r.data.progress.total_sec, 200);
+    const seek = env.window.document.querySelector("input[data-test-id='TIMECODE_SLIDER']");
+    const before = seek.value;
+    env.ctrl.changeVolume('SET', 60);
+    assert.equal(seek.value, before);
   });
 });

@@ -1,3 +1,6 @@
+mod elgato;
+mod icons;
+
 use std::fs::File;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -14,10 +17,12 @@ const MAC_TARGETS: [&str; 2] = ["x86_64-apple-darwin", "aarch64-apple-darwin"];
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref().unwrap_or("") {
         "dist" => dist(),
-        "package" => package(),
+        "package" => package(std::env::args().nth(2).as_deref()),
+        "store" => store(),
         "clean" => clean(),
+        "elgato" => elgato::run_task(std::env::args().nth(2).as_deref()),
         other => {
-            eprintln!("xtask: неизвестная задача {other:?}. Доступно: dist, package, clean");
+            eprintln!("xtask: неизвестная задача {other:?}. Доступно: dist, package [os], store, clean, elgato");
             Ok(())
         }
     }
@@ -125,39 +130,115 @@ fn dist_copy(rust: &Path, bin_dir: &Path, bin_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn package() -> Result<()> {
-    dist()?;
-    let os = std::env::consts::OS;
-    let bin = bin_filename(os);
+fn package(os_arg: Option<&str>) -> Result<()> {
+    let os = match os_arg {
+        Some(os) if ["windows", "macos", "linux"].contains(&os) => os.to_owned(),
+        Some(other) => bail!("xtask package: неизвестная ОС {other:?} (windows|macos|linux)"),
+        None => {
+            dist()?;
+            std::env::consts::OS.to_owned()
+        }
+    };
+    let bin = bin_filename(&os);
+    let bin_path = plugin_bin_dir().join(bin);
+    if !bin_path.is_file() {
+        bail!("нет бинаря {}: соберите его (xtask dist или кросс-сборкой) и повторите", bin_path.display());
+    }
 
     let release = repo_root().join("release");
     std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
-    let zip_path = release.join(ym_model::dist::release_zip_name(os, env!("CARGO_PKG_VERSION")));
+    let zip_path = release.join(ym_model::dist::release_zip_name(&os, env!("CARGO_PKG_VERSION")));
 
-    write_release_zip(&zip_path, &plugin_dir(), bin)?;
+    let entries = write_release_zip(&zip_path, &plugin_dir(), &[bin])?;
+    print_package_summary(&format!("{} — {os}", plugin_display_name(&plugin_dir())), &zip_path, &entries);
     println!("xtask: релиз → {}", zip_path.display());
     Ok(())
 }
 
-fn write_release_zip(zip_path: &Path, plugin: &Path, bin: &str) -> Result<()> {
+fn store() -> Result<()> {
+    let plugin = plugin_dir();
+    for bin in ["ym-plugin", "ym-plugin.exe"] {
+        let p = plugin.join("bin").join(bin);
+        if !p.is_file() {
+            bail!("для store-пакета нужны оба бинаря; отсутствует {}", p.display());
+        }
+    }
+    let release = repo_root().join("release");
+    std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
+    let out = release.join(PLUGIN_DIR_NAME);
+    let entries = write_release_zip(&out, &plugin, &["ym-plugin", "ym-plugin.exe"])?;
+    print_package_summary(&format!("{} — StreamDock Store", plugin_display_name(&plugin)), &out, &entries);
+    println!("xtask: store-пакет (zip с обёрткой, оба бинаря) → {}", out.display());
+    Ok(())
+}
+
+fn write_release_zip(zip_path: &Path, plugin: &Path, bins: &[&str]) -> Result<Vec<(String, u64)>> {
     let file = File::create(zip_path).with_context(|| format!("создание {}", zip_path.display()))?;
     let mut zw = ZipWriter::new(file);
     let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let exec_opts = opts.unix_permissions(0o755);
+    let mut entries = Vec::new();
 
-    add_file(&mut zw, &plugin.join("manifest.json"), &format!("{PLUGIN_DIR_NAME}/manifest.json"), opts)?;
-    add_tree(&mut zw, &plugin.join("static"), &format!("{PLUGIN_DIR_NAME}/static"), opts)?;
+    add_file(&mut zw, &plugin.join("manifest.json"), &format!("{PLUGIN_DIR_NAME}/manifest.json"), opts, &mut entries)?;
+    add_tree(&mut zw, &plugin.join("static"), &format!("{PLUGIN_DIR_NAME}/static"), opts, &mut entries)?;
 
-    add_file(&mut zw, &plugin.join("bin").join(bin), &format!("{PLUGIN_DIR_NAME}/bin/{bin}"), exec_opts)?;
+    for bin in bins {
+        add_file(&mut zw, &plugin.join("bin").join(bin), &format!("{PLUGIN_DIR_NAME}/bin/{bin}"), exec_opts, &mut entries)?;
+    }
 
     zw.finish().context("финализация zip")?;
-    Ok(())
+    Ok(entries)
 }
 
-fn add_file(zw: &mut ZipWriter<File>, src: &Path, name: &str, opts: SimpleFileOptions) -> Result<()> {
+fn human_bytes(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1} MB", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1} kB", n as f64 / 1_000.0)
+    } else {
+        format!("{n} B")
+    }
+}
+
+fn plugin_display_name(plugin: &Path) -> String {
+    std::fs::read_to_string(plugin.join("manifest.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|m| m.get("Name").and_then(|n| n.as_str()).map(str::to_owned))
+        .unwrap_or_else(|| "ym-plugin".to_owned())
+}
+
+fn print_package_summary(title: &str, zip_path: &Path, entries: &[(String, u64)]) {
+    println!();
+    println!("📦 {title} (v{})", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("Содержимое пакета");
+    let width = entries.iter().map(|(_, s)| human_bytes(*s).len()).max().unwrap_or(0);
+    for (i, (name, size)) in entries.iter().enumerate() {
+        let branch = if i + 1 == entries.len() { "└─" } else { "├─" };
+        println!("{branch}  {:>width$}  {name}", human_bytes(*size));
+    }
+    println!();
+    println!("Детали пакета");
+    println!("  Всего файлов:          {}", entries.len());
+    println!("  Распакованный размер:  {}", human_bytes(entries.iter().map(|(_, s)| s).sum()));
+    let packed = std::fs::metadata(zip_path).map(|m| m.len()).unwrap_or(0);
+    println!("  Размер архива:         {}", human_bytes(packed));
+    println!("  Файл:                  {}", zip_path.display());
+    println!();
+}
+
+fn add_file(
+    zw: &mut ZipWriter<File>,
+    src: &Path,
+    name: &str,
+    opts: SimpleFileOptions,
+    entries: &mut Vec<(String, u64)>,
+) -> Result<()> {
     let data = std::fs::read(src).with_context(|| format!("чтение {}", src.display()))?;
     zw.start_file(name, opts).with_context(|| format!("zip start_file {name}"))?;
     zw.write_all(&data).with_context(|| format!("zip write {name}"))?;
+    entries.push((name.to_owned(), data.len() as u64));
     Ok(())
 }
 
@@ -165,12 +246,18 @@ fn is_runtime_only_icon(name: &str) -> bool {
     name.starts_with("btn_") || name == "emptiness_black.png"
 }
 
-fn add_tree(zw: &mut ZipWriter<File>, src_dir: &Path, prefix: &str, opts: SimpleFileOptions) -> Result<()> {
-    let mut entries: Vec<_> = std::fs::read_dir(src_dir)
+fn add_tree(
+    zw: &mut ZipWriter<File>,
+    src_dir: &Path,
+    prefix: &str,
+    opts: SimpleFileOptions,
+    entries: &mut Vec<(String, u64)>,
+) -> Result<()> {
+    let mut dir_entries: Vec<_> = std::fs::read_dir(src_dir)
         .with_context(|| format!("чтение {}", src_dir.display()))?
         .collect::<std::io::Result<Vec<_>>>()?;
-    entries.sort_by_key(|e| e.file_name());
-    for entry in entries {
+    dir_entries.sort_by_key(|e| e.file_name());
+    for entry in dir_entries {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
         if name_str.starts_with('.') {
@@ -180,11 +267,14 @@ fn add_tree(zw: &mut ZipWriter<File>, src_dir: &Path, prefix: &str, opts: Simple
         if ft.is_file() && is_runtime_only_icon(&name_str) {
             continue;
         }
+        if ft.is_dir() && name_str == "elgato" && prefix.ends_with("/static/img") {
+            continue;
+        }
         let entry_name = format!("{prefix}/{name_str}");
         if ft.is_dir() {
-            add_tree(zw, &entry.path(), &entry_name, opts)?;
+            add_tree(zw, &entry.path(), &entry_name, opts, entries)?;
         } else {
-            add_file(zw, &entry.path(), &entry_name, opts)?;
+            add_file(zw, &entry.path(), &entry_name, opts, entries)?;
         }
     }
     Ok(())
@@ -209,6 +299,13 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
     use std::io::Read;
+
+    #[test]
+    fn human_bytes_units() {
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(6_100), "6.1 kB");
+        assert_eq!(human_bytes(8_939_248), "8.9 MB");
+    }
 
     #[test]
     fn bin_names() {
@@ -240,7 +337,7 @@ mod tests {
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, "ym-plugin")?;
+        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
 
         let mut archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let names: HashSet<String> = archive.file_names().map(String::from).collect();
@@ -279,10 +376,12 @@ mod tests {
         ] {
             std::fs::write(img.join(f), b"png")?;
         }
+        std::fs::create_dir_all(img.join("elgato"))?;
+        std::fs::write(img.join("elgato").join("plugin-icon.png"), b"png")?;
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, "ym-plugin")?;
+        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
 
         let archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let names: HashSet<String> = archive.file_names().map(String::from).collect();
@@ -293,6 +392,10 @@ mod tests {
         for runtime in ["btn_yandex_music_next_v1.png", "emptiness_black.png"] {
             assert!(!names.iter().any(|n| n.ends_with(runtime)), "рантайм-иконка {runtime} не должна попадать в zip");
         }
+        assert!(
+            !names.iter().any(|n| n.contains("/img/elgato/")),
+            "elgato-набор иконок не должен попадать в StreamDock/GitHub-zip"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
         Ok(())
@@ -310,7 +413,7 @@ mod tests {
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, "ym-plugin")?;
+        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
 
         let mut archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let mut ordered = Vec::new();
@@ -325,6 +428,47 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn store_zip_contains_both_binaries_wrapped() -> Result<()> {
+        let tmp = std::env::temp_dir().join(format!("xtask_store_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let plugin = tmp.join("plugin");
+        std::fs::create_dir_all(plugin.join("static"))?;
+        std::fs::create_dir_all(plugin.join("bin"))?;
+        std::fs::write(plugin.join("manifest.json"), b"{}")?;
+        std::fs::write(plugin.join("static").join("icon.png"), b"png")?;
+        std::fs::write(plugin.join("static").join(".DS_Store"), b"junk")?;
+        std::fs::write(plugin.join("bin").join("ym-plugin"), b"mac")?;
+        std::fs::write(plugin.join("bin").join("ym-plugin.exe"), b"win")?;
+
+        let zip_path = tmp.join("com.judd1.yandex_music.sdPlugin");
+        write_release_zip(&zip_path, &plugin, &["ym-plugin", "ym-plugin.exe"])?;
+
+        let archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
+        let names: HashSet<String> = archive.file_names().map(String::from).collect();
+        let p = PLUGIN_DIR_NAME;
+        assert!(names.contains(&format!("{p}/manifest.json")));
+        assert!(names.contains(&format!("{p}/bin/ym-plugin")));
+        assert!(names.contains(&format!("{p}/bin/ym-plugin.exe")));
+        assert!(names.iter().all(|n| n.starts_with(&format!("{p}/"))), "все записи внутри папки-обёртки");
+        assert!(!names.iter().any(|n| n.contains("DS_Store")));
+
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn manifest_version_matches_workspace_version() -> Result<()> {
+        let manifest = std::fs::read_to_string(plugin_dir().join("manifest.json"))?;
+        let v: serde_json::Value = serde_json::from_str(&manifest)?;
+        assert_eq!(
+            v["Version"].as_str().unwrap_or_default(),
+            env!("CARGO_PKG_VERSION"),
+            "Version в manifest.json обязан совпадать с workspace-версией"
+        );
         Ok(())
     }
 }

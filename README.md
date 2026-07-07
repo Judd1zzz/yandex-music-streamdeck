@@ -27,6 +27,7 @@
 <p align="center">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
+  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/Get_it_on-StreamDock_Store-6E56CF?style=for-the-badge" alt="Get it on StreamDock Store"></a>
 </p>
 
 <p align="center">
@@ -134,7 +135,24 @@ Use the regular links without RUS. On first launch the software will offer to sw
 
 ## Installation
 
-### 1. Download the plugin
+### ⚡ Quick install — StreamDock Store (Mirabox/Ajazz)
+
+<p align="center">
+  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/Get_it_on-StreamDock_Store-6E56CF?style=for-the-badge" alt="Get it on StreamDock Store"></a>
+</p>
+
+The plugin is available in the official StreamDock Store — no archives, no Terminal:
+
+1. Sign in (or register for free) at [space.key123.vip](https://space.key123.vip) and open the [plugin page](https://space.key123.vip/product/20260706002752).
+2. Click **Open Software** — the StreamDock app opens, downloads and installs the plugin automatically.
+
+> Requires StreamDock **3.10.185.1120 or newer** with your Mirabox Space account signed in inside the app. In the app itself the plugin lives in the **Space** section (not the legacy "Store" tab). On macOS this method needs no quarantine workarounds.
+>
+> On Elgato software, or prefer doing it by hand? Follow steps 1–4 below.
+
+---
+
+### 1. Download the plugin (manual install)
 
 <p align="center">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>

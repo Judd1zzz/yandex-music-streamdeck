@@ -8,6 +8,11 @@ license.workspace = true
 name = "ym-plugin"
 path = "src/main.rs"
 
+[features]
+default = ["downloads", "self-update"]
+downloads = ["dep:ym-download", "ym-cdp/download-button"]
+self-update = ["dep:ym-update"]
+
 [dependencies]
 tokio.workspace = true
 tokio-util.workspace = true
@@ -21,8 +26,8 @@ sd-host.workspace = true
 ym-core.workspace = true
 ym-cdp.workspace = true
 ym-discord.workspace = true
-ym-download.workspace = true
-ym-update.workspace = true
+ym-download = { workspace = true, optional = true }
+ym-update = { workspace = true, optional = true }
 ym-launch.workspace = true
 ym-render.workspace = true
 

@@ -13,8 +13,10 @@ use ym_cdp::CdpController;
 use ym_core::{build_action, ActionFactory, MediaController, Orchestrator, Shared};
 use ym_render::Renderers;
 
+#[cfg(feature = "downloads")]
 struct RealDownloader;
 
+#[cfg(feature = "downloads")]
 #[async_trait::async_trait]
 impl ym_core::Downloader for RealDownloader {
     async fn download(
@@ -27,6 +29,31 @@ impl ym_core::Downloader for RealDownloader {
         let dir = ym_download::resolve_dir(dir_setting);
         ym_download::download_track(track_id, token, &dir, format).await
     }
+}
+
+#[cfg(feature = "downloads")]
+fn make_downloader() -> Arc<dyn ym_core::Downloader> {
+    Arc::new(RealDownloader)
+}
+
+#[cfg(not(feature = "downloads"))]
+fn make_downloader() -> Arc<dyn ym_core::Downloader> {
+    Arc::new(ym_core::StubDownloader)
+}
+
+#[cfg(feature = "self-update")]
+fn spawn_update(shared: Arc<Shared>) -> tokio::task::JoinHandle<()> {
+    let (owner, repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
+    tokio::spawn(async move {
+        if let Some(v) = ym_update::run(&owner, &repo, env!("CARGO_PKG_VERSION")).await {
+            shared.apply_update_notice(v);
+        }
+    })
+}
+
+#[cfg(not(feature = "self-update"))]
+fn spawn_update(_shared: Arc<Shared>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async {})
 }
 
 struct CdpPortLink(Arc<CdpController>);
@@ -74,6 +101,7 @@ fn env_u16(key: &str, default: u16) -> u16 {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+#[cfg(feature = "self-update")]
 fn parse_update_repo(v: Option<&str>) -> (String, String) {
     if let Some(v) = v
         && let Some((owner, repo)) = v.trim().split_once('/')
@@ -109,18 +137,12 @@ async fn main() {
     cdp.set_download_tx(dl_tx);
     let cdp_task = cdp.start(shutdown.clone());
     let launch_link = cdp.clone();
-    let shared = Shared::wired(bus, cdp, render, Arc::new(RealDownloader));
+    let shared = Shared::wired(bus, cdp, render, make_downloader());
     let discord_task = ym_discord::spawn(shared.subscribe(), shared.subscribe_discord(), shutdown.clone());
     let (kick_tx, kick_rx) = mpsc::channel::<()>(4);
     shared.set_launch_kick(kick_tx);
     shared.set_client_path_checker(Arc::new(client_path_report));
-    let (upd_owner, upd_repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
-    let update_shared = shared.clone();
-    let update_task = tokio::spawn(async move {
-        if let Some(v) = ym_update::run(&upd_owner, &upd_repo, env!("CARGO_PKG_VERSION")).await {
-            update_shared.apply_update_notice(v);
-        }
-    });
+    let update_task = spawn_update(shared.clone());
     let (reason_tx, mut reason_rx) = tokio::sync::watch::channel::<Option<String>>(None);
     let launch_task = ym_launch::spawn(ym_launch::WatcherDeps {
         cdp: Arc::new(CdpPortLink(launch_link)),
@@ -200,7 +222,7 @@ async fn download_consumer(mut rx: mpsc::Receiver<String>, shared: Arc<Shared>, 
 
 #[cfg(test)]
 mod tests {
-    use super::{client_path_report, download_consumer, parse_update_repo};
+    use super::{client_path_report, download_consumer};
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
@@ -250,8 +272,10 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(feature = "self-update")]
     #[test]
     fn update_repo_override_and_defaults() {
+        use super::parse_update_repo;
         assert_eq!(parse_update_repo(Some("me/scratch")), ("me".to_owned(), "scratch".to_owned()));
         assert_eq!(parse_update_repo(Some(" me / scratch ")), ("me".to_owned(), "scratch".to_owned()));
         let def = ("Judd1zzz".to_owned(), "yandex-music-streamdeck".to_owned());

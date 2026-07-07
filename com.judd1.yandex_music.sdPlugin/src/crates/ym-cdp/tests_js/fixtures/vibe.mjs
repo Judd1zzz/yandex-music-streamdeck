@@ -69,3 +69,29 @@ export const VIBE_MY_VIBE_PAUSED_HTML = `<!DOCTYPE html><html><body>
     </div>
   </section>
 </body></html>`;
+
+// Vibe-бар, у которого выжили только data-test-id (все хешированные классы сменились):
+// проверяет test-id-слои гейта, тайтла, обложки и комбинированного таймкода.
+export const VIBE_TESTID_ONLY_HTML = `<!DOCTYPE html><html><body>
+  <section data-test-id="VIBE_PLAYERBAR" aria-label="Player">
+    <div data-test-id="VIBE_ALBUM_COVER">
+      <a href="/album?albumId=1"><img src="https://avatars.yandex.net/get-music-content/2383988/x/400x400"></a>
+    </div>
+    <button type="button" aria-label="I don't like it" aria-pressed="false" data-test-id="DISLIKE_BUTTON"><span></span></button>
+    <div data-test-id="VIBE_PLAYERBAR_TRACK_NAME"><div>Faded</div></div>
+    <span aria-hidden="true" data-test-id="VIBE_PLAYERBAR_TIMECODE">00:38 / 02:59</span>
+    <button type="button" aria-label="Like" aria-pressed="false" data-test-id="LIKE_BUTTON"><span></span></button>
+    <button type="button" aria-label="Previous song" data-test-id="PREVIOUS_TRACK_BUTTON"><span></span></button>
+    <button type="button" aria-label="Pause" data-test-id="PAUSE_BUTTON"><span></span></button>
+    <button type="button" aria-label="Next song" data-test-id="NEXT_TRACK_BUTTON"><span></span></button>
+  </section>
+</body></html>`;
+
+export const VIBE_TESTID_ONLY_WITH_SLIDER_HTML = `<!DOCTYPE html><html><body>
+  <section data-test-id="VIBE_PLAYERBAR" aria-label="Player">
+    <div data-test-id="VIBE_PLAYERBAR_TRACK_NAME"><div>Faded</div></div>
+    <span aria-hidden="true" data-test-id="VIBE_PLAYERBAR_TIMECODE">00:38 / 02:59</span>
+    <input data-test-id="TIMECODE_SLIDER" aria-label="Manage time code" type="range" max="200" value="50">
+    <button type="button" aria-label="Pause" data-test-id="PAUSE_BUTTON"><span></span></button>
+  </section>
+</body></html>`;

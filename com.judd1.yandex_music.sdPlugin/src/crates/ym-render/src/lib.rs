@@ -17,6 +17,7 @@ pub use progress::{format_time, ProgressInput};
 
 #[derive(RustEmbed)]
 #[folder = "../../../static/img"]
+#[exclude = "elgato/*"]
 struct Img;
 
 pub struct Renderers {
@@ -95,6 +96,13 @@ mod tests {
         assert!(Arc::ptr_eq(&uri, &uri2));
         assert!(r.icon_b64("nope.png").is_none());
         assert!(r.exists("emptiness_black.png"));
+    }
+
+    #[test]
+    fn elgato_icon_set_is_not_embedded_into_binary() {
+        let r = Renderers::new();
+        assert!(r.icon_b64("elgato/plugin-icon.png").is_none());
+        assert!(r.icon_b64("elgato/yandex_music_like.png").is_none());
     }
 
     #[test]

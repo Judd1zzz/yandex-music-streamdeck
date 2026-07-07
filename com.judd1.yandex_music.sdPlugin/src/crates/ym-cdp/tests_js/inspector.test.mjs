@@ -29,9 +29,9 @@ function setup() {
   return { window, dom, sockets };
 }
 
-function connect(window) {
+function connect(window, action = 'com.judd1.yandex_music.action.like') {
   const info = JSON.stringify({ pluginUUID: PLUGIN_UUID });
-  const actionInfo = JSON.stringify({ action: 'com.judd1.yandex_music.action.like', payload: { settings: {} } });
+  const actionInfo = JSON.stringify({ action, payload: { settings: {} } });
   window.connectElgatoStreamDeckSocket(123, PI_UUID, 'registerPropertyInspector', info, actionInfo);
 }
 
@@ -428,5 +428,41 @@ describe('PI: живая валидация пути клиента', () => {
     deliver(ws, { event: 'ClientPathCheck', verdict: 'что-то-новое', resolved: null, expected: 'x' });
     assert.ok(el.className.includes('hidden'));
     assert.equal(el.textContent, '');
+  });
+});
+
+describe('PI: маршрутизация UUID двух схем (StreamDock underscore / Elgato dash)', () => {
+  test('legacy underscore-uuid: секция открывается, download-блок остаётся видимым', () => {
+    const { window, sockets } = setup();
+    connect(window, 'com.judd1.yandex_music.action.like');
+    sockets[0].onopen();
+    const doc = window.document;
+    assert.ok(!doc.getElementById('like_settings').classList.contains('hidden'));
+    assert.ok(!doc.getElementById('download_global_block').classList.contains('hidden'));
+  });
+
+  test('dash-uuid: секция открывается по нормализации, download-блок скрыт', () => {
+    const { window, sockets } = setup();
+    connect(window, 'com.judd1.yandex-music.action.like');
+    sockets[0].onopen();
+    const doc = window.document;
+    assert.ok(!doc.getElementById('like_settings').classList.contains('hidden'));
+    assert.ok(doc.getElementById('download_global_block').classList.contains('hidden'));
+  });
+
+  test('dash-uuid volume-display: открывает volume-секцию', () => {
+    const { window, sockets } = setup();
+    connect(window, 'com.judd1.yandex-music.action.volume-display');
+    sockets[0].onopen();
+    assert.ok(!window.document.getElementById('volume_settings').classList.contains('hidden'));
+  });
+
+  test('legacy volume_knob: обе секции открываются как раньше', () => {
+    const { window, sockets } = setup();
+    connect(window, 'com.judd1.yandex_music.action.volume_knob');
+    sockets[0].onopen();
+    const doc = window.document;
+    assert.ok(!doc.getElementById('knob_settings').classList.contains('hidden'));
+    assert.ok(!doc.getElementById('volume_settings').classList.contains('hidden'));
   });
 });

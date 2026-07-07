@@ -98,6 +98,7 @@ pub fn transform_manifest(src: &Value, overlay: &Value, version: &str) -> Result
         obj.insert(key.into(), v.clone());
     }
     obj.insert("UUID".into(), json!(ELGATO_UUID));
+    obj.insert("SDKVersion".into(), json!(3));
     obj.insert("Icon".into(), json!("static/img/elgato/plugin-icon"));
     obj.insert("CategoryIcon".into(), json!("static/img/elgato/category-icon"));
     obj.insert("CodePath".into(), json!("bin/ym-plugin"));
@@ -369,7 +370,8 @@ mod tests {
         assert_eq!(out["Version"], "2.2.0.0");
         assert_eq!(out["Name"], "Yandex Music Integration");
         assert_eq!(out["Category"], "Yandex Music Integration");
-        assert_eq!(out["Software"]["MinimumVersion"], "6.5");
+        assert_eq!(out["Software"]["MinimumVersion"], "6.9");
+        assert_eq!(out["SDKVersion"], 3);
         assert_eq!(out["Icon"], "static/img/elgato/plugin-icon");
         assert_eq!(out["CategoryIcon"], "static/img/elgato/category-icon");
         assert_eq!(out["CodePath"], "bin/ym-plugin");

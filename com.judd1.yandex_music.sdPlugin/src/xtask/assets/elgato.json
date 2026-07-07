@@ -3,7 +3,7 @@
     "Description": "Control the Yandex Music desktop app right from your Stream Deck: playback, likes, live track info with cover art, progress bar and volume. The plugin launches and controls the official Yandex Music desktop app on your computer; sign-in happens in the app itself, so the plugin never asks for your password. Requires the Yandex Music desktop app and a Yandex Plus subscription. Unofficial community plugin, not affiliated with Yandex. Note: the settings panel is currently in Russian. Support: https://github.com/Judd1zzz/yandex-music-streamdeck/issues",
     "Category": "Yandex Music Integration",
     "Software": {
-        "MinimumVersion": "6.5"
+        "MinimumVersion": "6.9"
     },
     "OS": [
         {

@@ -230,10 +230,7 @@ async fn cycle(
             backoff.note_result(ok);
         }
         Decision::HintForeignPort => {
-            set_reason(
-                &deps.reason,
-                Some(format!("Порт {port} занят другим приложением — укажите другой порт в настройках")),
-            );
+            set_reason(&deps.reason, Some(REASON_PORT_BUSY.to_owned()));
             if hint_due(last_hint) {
                 tracing::warn!("launch: порт {port} занят посторонним приложением — укажите другой порт в настройках плагина");
             }
@@ -249,9 +246,10 @@ async fn cycle(
     }
 }
 
-pub const REASON_ELEVATED: &str = "Клиент запущен от имени администратора — плагин не может им управлять. Снимите галочку «Запускать от имени администратора» в свойствах клиента или перезапустите его вручную";
-pub const REASON_DECLINED: &str = "Запрос прав администратора отклонён — нажмите любую кнопку плагина, чтобы попробовать снова";
-pub const REASON_NOT_FOUND: &str = "Клиент не найден — установите его с music.yandex.ru/download или укажите путь в настройках";
+pub const REASON_PORT_BUSY: &str = "port_busy";
+pub const REASON_ELEVATED: &str = "client_elevated";
+pub const REASON_DECLINED: &str = "elevation_declined";
+pub const REASON_NOT_FOUND: &str = "client_not_found";
 
 fn hint_due(last_hint: &mut Option<Instant>) -> bool {
     let now = Instant::now();

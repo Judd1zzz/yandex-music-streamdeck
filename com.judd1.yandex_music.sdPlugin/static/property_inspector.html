@@ -8,16 +8,17 @@
 <body>
     <div class="sdpi-wrapper">
         <div class="pi-hint pi-update-notice hidden" id="update_notice"></div>
+        <div class="pi-hint pi-lang-offer hidden" id="lang_offer"></div>
 
         <div id="control_mode_settings">
              <div class="sdpi-item" type="group">
-                <div class="sdpi-item-label">Тип управления <span id="local_status_indicator" class="status-indicator">...</span></div>
+                <div class="sdpi-item-label"><span data-i18n="control_mode_label">Control mode</span> <span id="local_status_indicator" class="status-indicator">...</span></div>
                 <div class="sdpi-item-value">
                     <div class="custom-select">
                         <div class="select-selected" id="control_mode_selected">Local</div>
                         <div class="select-items select-hide" id="control_mode_items">
-                            <div data-value="local">Local (это устройство)</div>
-                            <div data-value="ynison">Ynison (удаленно)</div>
+                            <div data-value="local" data-i18n="opt_mode_local">Local (this device)</div>
+                            <div data-value="ynison" data-i18n="opt_mode_ynison">Ynison (remote)</div>
                         </div>
                     </div>
                 </div>
@@ -26,20 +27,20 @@
              <div class="sdpi-item">
                                 <div class="sdpi-item-value pi-row-spread">
                     <div class="pi-hint pi-hint-narrow" id="mode_description">
-                        Управление клиентом на этом компьютере
+                        Controls the client on this computer
                     </div>
-                    <button class="btn-secondary" id="btn_apply_all" onclick="applyModeToAll()">Применить ко всем</button>
+                    <button class="btn-secondary" id="btn_apply_all" onclick="applyModeToAll()" data-i18n="btn_apply_all">Apply to all</button>
                 </div>
             </div>
         </div>
 
         <div id="local_settings_group" class="hidden">
             <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label">Порт</div>
+                <div class="sdpi-item-label" data-i18n="port_label">Port</div>
                 <input class="sdpi-item-value" id="local_port_input" type="text" inputmode="numeric" value="9222" placeholder="9222" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateLocalPort()">
             </div>
             <div class="sdpi-item pi-checkbox-item" type="checkbox">
-                <div class="sdpi-item-label">Клиент</div>
+                <div class="sdpi-item-label" data-i18n="client_label">Client</div>
                 <div class="sdpi-item-value">
                     <div class="sdpi-item-child">
                         <input class="inp-cbx" id="chk_client_autofix" type="checkbox" onchange="updateClientAutofix()">
@@ -49,19 +50,19 @@
                                     <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
                                 </svg>
                             </span>
-                            <span>Запускать/перезапускать клиент с портом отладки</span>
+                            <span data-i18n="autofix_label">Launch/relaunch the client with the debug port</span>
                         </label>
                     </div>
                 </div>
             </div>
             <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label">Путь к клиенту</div>
-                <input class="sdpi-item-value" id="client_path_input" type="text" placeholder="Пусто — автоопределение" oninput="scheduleClientPathCheck()" onchange="updateClientPath()">
+                <div class="sdpi-item-label" data-i18n="client_path_label">Client path</div>
+                <input class="sdpi-item-value" id="client_path_input" type="text" placeholder="Empty — auto-detect" data-i18n-placeholder="ph_client_path" oninput="scheduleClientPathCheck()" onchange="updateClientPath()">
             </div>
             <div class="pi-hint pi-path-check hidden" id="client_path_check"></div>
             <div class="sdpi-item">
-                                <div class="sdpi-item-value pi-hint">
-                    Плагин сам находит клиент Яндекс Музыки и при необходимости перезапускает его с нужным флагом. Путь указывайте, только если клиент установлен в нестандартное место.
+                                <div class="sdpi-item-value pi-hint" data-i18n="autofix_hint">
+                    The plugin finds the Yandex Music client on its own and relaunches it with the required flag when needed. Set the path only if the client is installed in a non-standard location.
                 </div>
             </div>
         </div>
@@ -70,7 +71,7 @@
 
         <div id="info_settings" class="hidden">
             <div class="sdpi-item pi-checkbox-item" type="checkbox">
-                <div class="sdpi-item-label">Отображаемые элементы</div>
+                <div class="sdpi-item-label" data-i18n="info_elements_label">Displayed elements</div>
                 <div class="sdpi-item-value pi-col">
                      <div class="sdpi-item-child">
                         <input class="inp-cbx" id="chk_show_cover" type="checkbox" onchange="updateCheckbox('chk_show_cover', 'show_cover')">
@@ -80,7 +81,7 @@
                                     <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
                                 </svg>
                             </span>
-                            <span>Обложка</span>
+                            <span data-i18n="show_cover_label">Cover art</span>
                         </label>
                     </div>
                     <div class="sdpi-item-child">
@@ -91,7 +92,7 @@
                                     <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
                                 </svg>
                             </span>
-                            <span>Название трека</span>
+                            <span data-i18n="show_title_label">Track title</span>
                         </label>
                     </div>
                      <div class="sdpi-item-child">
@@ -102,7 +103,7 @@
                                     <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
                                 </svg>
                             </span>
-                            <span>Имя исполнителя</span>
+                            <span data-i18n="show_artist_label">Artist name</span>
                         </label>
                     </div>
                 </div>
@@ -111,12 +112,12 @@
 
         <div id="like_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="like_style_select">
                         <div class="select-selected" id="like_style_selected">original</div>
                         <div class="select-items select-hide" id="like_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v2_resize">version 2 (large)</div>
                         </div>
@@ -124,15 +125,15 @@
                 </div>
             </div>
         </div>
-        
+
         <div id="dislike_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="dislike_style_select">
                         <div class="select-selected" id="dislike_style_selected">original</div>
                         <div class="select-items select-hide" id="dislike_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -144,12 +145,12 @@
 
         <div id="next_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="next_style_select">
                         <div class="select-selected" id="next_style_selected">original</div>
                         <div class="select-items select-hide" id="next_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -161,12 +162,12 @@
 
         <div id="prev_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="prev_style_select">
                         <div class="select-selected" id="prev_style_selected">original</div>
                         <div class="select-items select-hide" id="prev_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -178,12 +179,12 @@
 
         <div id="play_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="play_style_select">
                         <div class="select-selected" id="play_style_selected">original</div>
                         <div class="select-items select-hide" id="play_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -195,7 +196,7 @@
 
         <div id="progress_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Формат отображения</div>
+                <div class="sdpi-item-label" data-i18n="progress_format_label">Display format</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select">
                         <div class="select-selected" id="progress_mode_selected">stacked (00:00 / 00:00)</div>
@@ -214,12 +215,12 @@
 
         <div id="mute_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="mute_style_select">
                         <div class="select-selected" id="mute_style_selected">original</div>
                         <div class="select-items select-hide" id="mute_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -231,12 +232,12 @@
 
         <div id="volume_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="volume_style_select">
                         <div class="select-selected" id="volume_style_selected">original</div>
                         <div class="select-items select-hide" id="volume_style_items">
-                            <div data-value="v1">original (с фоном)</div>
+                            <div data-value="v1" data-i18n="opt_style_v1">original (with background)</div>
                             <div data-value="v2">version 2</div>
                             <div data-value="v3">version 3</div>
                             <div data-value="v4">version 4</div>
@@ -248,7 +249,7 @@
 
         <div id="download_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Стиль кнопки</div>
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="download_style_select">
                         <div class="select-selected" id="download_style_selected">version 1</div>
@@ -263,28 +264,28 @@
 
         <div id="knob_settings" class="hidden">
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Нажатие крутилки</div>
+                <div class="sdpi-item-label" data-i18n="knob_press_label">Knob press</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="knob_press_select">
-                        <div class="select-selected" id="knob_press_selected">Mute (выкл/вкл звук)</div>
+                        <div class="select-selected" id="knob_press_selected" data-default-value="mute">Mute (toggle sound)</div>
                         <div class="select-items select-hide" id="knob_press_items">
-                            <div data-value="mute">Mute (выкл/вкл звук)</div>
+                            <div data-value="mute" data-i18n="opt_knob_mute">Mute (toggle sound)</div>
                             <div data-value="playpause">Play/Pause</div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label">Шаг за тик, %</div>
+                <div class="sdpi-item-label" data-i18n="knob_step_label">Step per tick, %</div>
                 <input class="sdpi-item-value" id="knob_step_input" type="text" inputmode="numeric" value="5" placeholder="5" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateKnobStep()">
             </div>
         </div>
 
         <div id="token_settings_block" class="sdpi-item hidden pi-group-lg" type="group">
-            <div class="sdpi-item-label">Аккаунт <span id="token_status_indicator" class="status-indicator">...</span></div>
+            <div class="sdpi-item-label"><span data-i18n="account_label">Account</span> <span id="token_status_indicator" class="status-indicator">...</span></div>
             <div class="sdpi-item-value">
-                <button class="btn-premium" onclick="openTokenPopup()">Обновить токен</button>
-                <div class="token-info">Нажмите, чтобы обновить сессию авторизации</div>
+                <button class="btn-premium" onclick="openTokenPopup()" data-i18n="btn_update_token">Update token</button>
+                <div class="token-info" data-i18n="token_info">Click to refresh the authorization session</div>
             </div>
         </div>
 
@@ -302,29 +303,29 @@
                                     <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
                                 </svg>
                             </span>
-                            <span>Rich Presence (текущий трек в профиле)</span>
+                            <span data-i18n="discord_rpc_label">Rich Presence (current track in your profile)</span>
                         </label>
                     </div>
                 </div>
             </div>
             <div class="sdpi-item" type="input">
                 <div class="sdpi-item-label">Application ID</div>
-                <input class="sdpi-item-value" id="discord_app_id_input" type="text" inputmode="numeric" placeholder="Пусто — встроенное приложение" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateDiscordAppId()">
+                <input class="sdpi-item-value" id="discord_app_id_input" type="text" inputmode="numeric" placeholder="Empty — built-in application" data-i18n-placeholder="ph_discord_app" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateDiscordAppId()">
             </div>
             <div class="sdpi-item">
-                                <div class="sdpi-item-value pi-hint">
-                    Оставьте пустым — используется встроенное приложение. Свой ID нужен, только если хотите отдельное имя/иконку.
+                                <div class="sdpi-item-value pi-hint" data-i18n="discord_hint">
+                    Leave empty to use the built-in application. A custom ID is only needed if you want a custom name/icon.
                 </div>
             </div>
         </div>
 
         <div id="download_global_block" class="pi-group-md" type="group">
             <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label">Папка скачивания</div>
-                <input class="sdpi-item-value" id="download_path_input" type="text" placeholder="по умолчанию: Музыка" onchange="updateDownloadPath()">
+                <div class="sdpi-item-label" data-i18n="download_dir_label">Download folder</div>
+                <input class="sdpi-item-value" id="download_path_input" type="text" placeholder="default: Music" data-i18n-placeholder="ph_download_path" onchange="updateDownloadPath()">
             </div>
             <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label">Формат</div>
+                <div class="sdpi-item-label" data-i18n="format_label">Format</div>
                 <div class="sdpi-item-value">
                     <div class="custom-select" id="download_format_select">
                         <div class="select-selected" id="download_format_selected">Lossless (FLAC/M4A)</div>
@@ -337,24 +338,40 @@
             </div>
         </div>
 
+        <div id="language_block" class="pi-group-md" type="group">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label" data-i18n="lang_label">Language</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="pi_language_select">
+                        <div class="select-selected" id="pi_language_selected" data-default-value="en">English</div>
+                        <div class="select-items select-hide" id="pi_language_items">
+                            <div data-value="en">English</div>
+                            <div data-value="ru">Русский</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="sdpi-item">
-            <div class="info pi-info-note">Настройки сохраняются сразу</div>
+            <div class="info pi-info-note" data-i18n="settings_note">Settings are saved immediately</div>
         </div>
     </div>
 
     <div id="ynison_modal" class="modal-overlay hidden">
         <div class="modal-card">
-            <div class="modal-title">⚠️ Ynison — режим для энтузиастов</div>
+            <div class="modal-title" data-i18n="ynison_title">⚠️ Ynison — a mode for enthusiasts</div>
             <div class="modal-text">
                 <ul>
-                    <li>нужен отдельно запущенный локальный API-сервер (api_for_plugin) и токен;</li>
-                    <li>Яндекс блокирует часть команд для ПК — переключение треков может не работать;</li>
-                    <li>в этой версии плагина Ynison работает ограниченно (полноценно — в Python-версии).</li>
+                    <li data-i18n="ynison_li1">requires a separately running local API server (api_for_plugin) and a token;</li>
+                    <li data-i18n="ynison_li2">Yandex blocks some commands for desktop — track switching may not work;</li>
+                    <li data-i18n="ynison_li3">in this plugin version Ynison support is limited (the Python version has it in full).</li>
                 </ul>
+                <div><span class="pi-update-link" id="ynison_repo_link" data-i18n="ynison_link">How to run api_for_plugin — guide on GitHub</span></div>
             </div>
             <div class="modal-buttons">
-                <button class="btn-secondary" id="ynison_cancel">Отмена</button>
-                <button class="btn-secondary btn-accent" id="ynison_confirm">Я осознаю, включить</button>
+                <button class="btn-secondary" id="ynison_cancel" data-i18n="btn_cancel">Cancel</button>
+                <button class="btn-secondary btn-accent" id="ynison_confirm" data-i18n="btn_ynison_confirm">I understand, enable</button>
             </div>
         </div>
     </div>

@@ -306,6 +306,7 @@ Global — set once, applies everywhere:
 | **Client path** | Only for non-standard installs; empty = auto-detection |
 | **Discord** | Rich Presence toggle; your own `Application ID` is optional |
 | **Download** | Folder and format: Lossless (FLAC/M4A) or MP3 320 |
+| **Language** | Settings panel language: English (default) or Russian. On a Russian-language system the panel offers the switch by itself |
 
 ---
 

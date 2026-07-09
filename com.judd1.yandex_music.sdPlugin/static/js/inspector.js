@@ -6,6 +6,221 @@ var settings = {};
 var globalSettings = {};
 var globalsReady = false;
 var toastTimer = null;
+var piLang = "en";
+var lastLocalStatus = null;
+var lastTokenStatus = null;
+var lastLocalReason = "";
+var lastUpdateVersion = "";
+var lastPathCheck = null;
+
+var I18N = {
+    en: {
+        control_mode_label: "Control mode",
+        opt_mode_local: "Local (this device)",
+        opt_mode_ynison: "Ynison (remote)",
+        btn_apply_all: "Apply to all",
+        port_label: "Port",
+        client_label: "Client",
+        autofix_label: "Launch/relaunch the client with the debug port",
+        client_path_label: "Client path",
+        ph_client_path: "Empty — auto-detect",
+        autofix_hint: "The plugin finds the Yandex Music client on its own and relaunches it with the required flag when needed. Set the path only if the client is installed in a non-standard location.",
+        info_elements_label: "Displayed elements",
+        show_cover_label: "Cover art",
+        show_title_label: "Track title",
+        show_artist_label: "Artist name",
+        btn_style_label: "Button style",
+        opt_style_v1: "original (with background)",
+        progress_format_label: "Display format",
+        knob_press_label: "Knob press",
+        opt_knob_mute: "Mute (toggle sound)",
+        knob_step_label: "Step per tick, %",
+        account_label: "Account",
+        btn_update_token: "Update token",
+        token_info: "Click to refresh the authorization session",
+        discord_rpc_label: "Rich Presence (current track in your profile)",
+        ph_discord_app: "Empty — built-in application",
+        discord_hint: "Leave empty to use the built-in application. A custom ID is only needed if you want a custom name/icon.",
+        download_dir_label: "Download folder",
+        ph_download_path: "default: Music",
+        format_label: "Format",
+        lang_label: "Language",
+        settings_note: "Settings are saved immediately",
+        ynison_title: "⚠️ Ynison — a mode for enthusiasts",
+        ynison_li1: "requires a separately running local API server (api_for_plugin) and a token;",
+        ynison_li2: "Yandex blocks some commands for desktop — track switching may not work;",
+        ynison_li3: "in this plugin version Ynison support is limited (the Python version has it in full).",
+        btn_cancel: "Cancel",
+        btn_ynison_confirm: "I understand, enable",
+        ynison_link: "How to run api_for_plugin — guide on GitHub",
+        toast_token_saved: "Token saved",
+        toast_applied_all: "Mode applied to all buttons",
+        toast_no_connection: "No connection to the plugin",
+        mode_desc_local: "Controls the client on this computer",
+        mode_desc_ynison: "Remote control via the ynison protocol (beta)",
+        path_ok: "✓ Client found",
+        path_ok_dir: "Folder given — {file} will be used",
+        path_missing: "Path does not exist",
+        path_no_client: "No “{file}” in this folder — point to {file}",
+        status_connected: "CONNECTED",
+        status_invalid: "INVALID",
+        status_offline: "OFFLINE",
+        status_loading: "LOADING...",
+        update_notice: "🔄 Update {v} installed — restart Stream Deck. ",
+        whats_new: "What's new",
+        reason_port_busy: "Port {port} is taken by another application — set a different port in the settings",
+        reason_client_elevated: "The client is running as administrator — the plugin cannot control it. Untick “Run this program as an administrator” in the client shortcut properties",
+        reason_elevation_declined: "The administrator rights request was declined — press any plugin button to try again",
+        reason_client_not_found: "Yandex Music client not found — install it from music.yandex.ru/download or set the path in the settings"
+    },
+    ru: {
+        control_mode_label: "Тип управления",
+        opt_mode_local: "Local (это устройство)",
+        opt_mode_ynison: "Ynison (удаленно)",
+        btn_apply_all: "Применить ко всем",
+        port_label: "Порт",
+        client_label: "Клиент",
+        autofix_label: "Запускать/перезапускать клиент с портом отладки",
+        client_path_label: "Путь к клиенту",
+        ph_client_path: "Пусто — автоопределение",
+        autofix_hint: "Плагин сам находит клиент Яндекс Музыки и при необходимости перезапускает его с нужным флагом. Путь указывайте, только если клиент установлен в нестандартное место.",
+        info_elements_label: "Отображаемые элементы",
+        show_cover_label: "Обложка",
+        show_title_label: "Название трека",
+        show_artist_label: "Имя исполнителя",
+        btn_style_label: "Стиль кнопки",
+        opt_style_v1: "original (с фоном)",
+        progress_format_label: "Формат отображения",
+        knob_press_label: "Нажатие крутилки",
+        opt_knob_mute: "Mute (выкл/вкл звук)",
+        knob_step_label: "Шаг за тик, %",
+        account_label: "Аккаунт",
+        btn_update_token: "Обновить токен",
+        token_info: "Нажмите, чтобы обновить сессию авторизации",
+        discord_rpc_label: "Rich Presence (текущий трек в профиле)",
+        ph_discord_app: "Пусто — встроенное приложение",
+        discord_hint: "Оставьте пустым — используется встроенное приложение. Свой ID нужен, только если хотите отдельное имя/иконку.",
+        download_dir_label: "Папка скачивания",
+        ph_download_path: "по умолчанию: Музыка",
+        format_label: "Формат",
+        lang_label: "Язык",
+        settings_note: "Настройки сохраняются сразу",
+        ynison_title: "⚠️ Ynison — режим для энтузиастов",
+        ynison_li1: "нужен отдельно запущенный локальный API-сервер (api_for_plugin) и токен;",
+        ynison_li2: "Яндекс блокирует часть команд для ПК — переключение треков может не работать;",
+        ynison_li3: "в этой версии плагина Ynison работает ограниченно (полноценно — в Python-версии).",
+        btn_cancel: "Отмена",
+        btn_ynison_confirm: "Я осознаю, включить",
+        ynison_link: "Как запустить api_for_plugin — инструкция на GitHub",
+        toast_token_saved: "Токен сохранён",
+        toast_applied_all: "Режим применён ко всем кнопкам",
+        toast_no_connection: "Нет связи с плагином",
+        mode_desc_local: "Управление клиентом на этом компьютере",
+        mode_desc_ynison: "Удаленное управление через протокол ynison (бета)",
+        path_ok: "✓ Клиент найден",
+        path_ok_dir: "Указана папка — будет использован {file}",
+        path_missing: "Путь не существует",
+        path_no_client: "В папке нет «{file}» — укажите путь к {file}",
+        status_connected: "ПОДКЛЮЧЕНО",
+        status_invalid: "НЕВАЛИДНО",
+        status_offline: "ОФФЛАЙН",
+        status_loading: "ЗАГРУЗКА...",
+        update_notice: "🔄 Установлено обновление {v} — перезапустите Stream Deck. ",
+        whats_new: "Что нового",
+        reason_port_busy: "Порт {port} занят другим приложением — укажите другой порт в настройках",
+        reason_client_elevated: "Клиент запущен от имени администратора — плагин не может им управлять. Снимите галочку «Запускать эту программу от имени администратора» в свойствах ярлыка клиента",
+        reason_elevation_declined: "Запрос прав администратора отклонён — нажмите любую кнопку плагина, чтобы попробовать снова",
+        reason_client_not_found: "Клиент Яндекс Музыки не найден — установите его с music.yandex.ru/download или укажите путь в настройках"
+    }
+};
+window.I18N = I18N;
+
+function t(key, vars) {
+    var dict = I18N[piLang] || I18N.en;
+    var s = dict[key];
+    if (s == null) s = I18N.en[key];
+    if (s == null) return key;
+    if (vars) {
+        Object.keys(vars).forEach(function(k) {
+            s = s.split("{" + k + "}").join(String(vars[k]));
+        });
+    }
+    return s;
+}
+
+function resyncSelectLabels() {
+    document.querySelectorAll(".custom-select").forEach(function(box) {
+        var selected = box.querySelector(".select-selected");
+        var items = box.querySelector(".select-items");
+        if (!selected || !items) return;
+        var current = items.querySelector(".same-as-selected");
+        if (!current && selected.getAttribute("data-default-value")) {
+            current = items.querySelector('[data-value="' + selected.getAttribute("data-default-value") + '"]');
+        }
+        if (current) selected.textContent = current.textContent;
+    });
+}
+
+function rerenderDynamicTexts() {
+    updateModeUI(settings.control_mode);
+    if (lastLocalStatus) updateStatusIndicator("local_status_indicator", lastLocalStatus);
+    if (lastTokenStatus) updateStatusIndicator("token_status_indicator", lastTokenStatus);
+    updateLocalReason(lastLocalReason);
+    if (lastUpdateVersion) renderUpdateNotice(lastUpdateVersion);
+    if (lastPathCheck) renderClientPathCheck(lastPathCheck);
+}
+
+function applyLanguage(lang) {
+    piLang = lang === "ru" ? "ru" : "en";
+    document.documentElement.lang = piLang;
+    document.querySelectorAll("[data-i18n]").forEach(function(el) {
+        el.textContent = t(el.getAttribute("data-i18n"));
+    });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function(el) {
+        el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder")));
+    });
+    resyncSelectLabels();
+    rerenderDynamicTexts();
+}
+
+function systemPrefersRussian() {
+    var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+    return langs.some(function(l) { return /^ru/i.test(String(l || "")); });
+}
+
+function hideLangOffer() {
+    var el = document.getElementById("lang_offer");
+    if (el) el.classList.add("hidden");
+}
+
+function chooseLanguage(lang) {
+    globalSettings.pi_language = lang;
+    saveGlobalSettings();
+    applyLanguage(lang);
+    syncGlobalSelect("pi_language", "pi_language_items", "pi_language_selected");
+    hideLangOffer();
+}
+
+function maybeOfferRussian() {
+    if (globalSettings.pi_language) { hideLangOffer(); return; }
+    if (!systemPrefersRussian()) return;
+    var el = document.getElementById("lang_offer");
+    if (!el) return;
+    el.textContent = "🌐 Панель настроек доступна на русском. Переключить? ";
+    var yes = document.createElement("span");
+    yes.className = "pi-lang-link";
+    yes.id = "lang_offer_yes";
+    yes.textContent = "Переключить на русский";
+    yes.addEventListener("click", function() { chooseLanguage("ru"); });
+    var no = document.createElement("span");
+    no.className = "pi-lang-link";
+    no.id = "lang_offer_no";
+    no.textContent = "Оставить English";
+    no.addEventListener("click", function() { chooseLanguage("en"); });
+    el.appendChild(yes);
+    el.appendChild(no);
+    el.classList.remove("hidden");
+}
 
 function showToast(text) {
     const el = document.getElementById("pi_toast");
@@ -17,7 +232,7 @@ function showToast(text) {
 }
 
 function openTokenPopup() {
-    const url = 'token.html';
+    const url = 'token.html?lang=' + piLang;
     const name = 'YandexTokenPopup';
     const specs = 'width=500,height=650,left=200,top=200';
     window.open(url, name, specs);
@@ -26,7 +241,7 @@ function openTokenPopup() {
 window.updateToken = function(newToken) {
     globalSettings.token = newToken;
     saveGlobalSettings();
-    showToast("Токен сохранён");
+    showToast(t("toast_token_saved"));
 };
 
 function updateLocalPort() {
@@ -92,20 +307,21 @@ function requestClientPathCheck() {
 function renderClientPathCheck(payload) {
     const el = document.getElementById("client_path_check");
     if (!el) return;
+    lastPathCheck = payload;
     const expected = payload.expected || "";
     let text = "";
     let tone = "warn";
     if (payload.verdict === "ok") {
-        text = "✓ Клиент найден";
+        text = t("path_ok");
         tone = "ok";
     } else if (payload.verdict === "ok_dir") {
-        text = "Указана папка — будет использован " + (payload.resolved || expected);
+        text = t("path_ok_dir", { file: payload.resolved || expected });
         tone = "warn";
     } else if (payload.verdict === "missing") {
-        text = "Путь не существует";
+        text = t("path_missing");
         tone = "err";
     } else if (payload.verdict === "dir_without_client") {
-        text = "В папке нет «" + expected + "» — укажите путь к " + expected;
+        text = t("path_no_client", { file: expected });
         tone = "err";
     }
     if (!text) {
@@ -151,9 +367,9 @@ function applyModeToAll() {
             }
         };
         websocket.send(JSON.stringify(json));
-        showToast("Режим применён ко всем кнопкам");
+        showToast(t("toast_applied_all"));
     } else {
-        showToast("Нет связи с плагином");
+        showToast(t("toast_no_connection"));
     }
 }
 
@@ -165,11 +381,11 @@ function updateModeUI(mode) {
     const cleanMode = (mode || "local").toString().trim().toLowerCase();
     
     if (cleanMode === 'local') {
-        if(desc) desc.innerHTML = "Управление клиентом на этом компьютере";
+        if(desc) desc.textContent = t("mode_desc_local");
         if(localGroup) localGroup.classList.remove("hidden");
         if(tokenBlock) tokenBlock.classList.add("hidden");
     } else {
-        if(desc) desc.innerHTML = "Удаленное управление через протокол ynison (бета)";
+        if(desc) desc.textContent = t("mode_desc_ynison");
         if(localGroup) localGroup.classList.add("hidden");
         if(tokenBlock) tokenBlock.classList.remove("hidden");
     }
@@ -243,11 +459,21 @@ function showYnisonModal(onConfirm) {
     };
 }
 
-function initGlobalSelect(selectedId, itemsId, globalKey) {
+(function initYnisonRepoLink() {
+    var link = document.getElementById("ynison_repo_link");
+    if (!link) return;
+    link.addEventListener("click", function() {
+        openExternal(piLang === "ru"
+            ? "https://github.com/Judd1zzz/yandex-music-streamdeck/blob/main/README_RU.md#режим-ynison-экспериментальный"
+            : "https://github.com/Judd1zzz/yandex-music-streamdeck#ynison-mode-experimental");
+    });
+})();
+
+function initGlobalSelect(selectedId, itemsId, globalKey, callback) {
     initSelect(selectedId, itemsId, function(val) {
         globalSettings[globalKey] = val;
         saveGlobalSettings();
-    });
+    }, callback);
 }
 
 function syncGlobalSelect(globalKey, itemsId, selectedId) {
@@ -310,6 +536,10 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         
         initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI, ynisonGuard);
         initGlobalSelect("download_format_selected", "download_format_items", "download_format");
+        initGlobalSelect("pi_language_selected", "pi_language_items", "pi_language", function(val) {
+            applyLanguage(val);
+            hideLangOffer();
+        });
 
         const rawAction = String(actionInfo.action || '');
         const action = rawAction.replace(/_/g, '-');
@@ -389,12 +619,17 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
             const dlPath = document.getElementById("download_path_input");
             if (dlPath && typeof globalSettings.download_path === "string") dlPath.value = globalSettings.download_path;
             syncGlobalSelect("download_format", "download_format_items", "download_format_selected");
+            applyLanguage(globalSettings.pi_language === "ru" ? "ru" : "en");
+            syncGlobalSelect("pi_language", "pi_language_items", "pi_language_selected");
+            maybeOfferRussian();
         } else if (jsonObj.event === 'sendToPropertyInspector') {
             var payload = jsonObj.payload;
             if (payload.event === "TokenStatus") {
+                lastTokenStatus = payload.status;
                 updateStatusIndicator("token_status_indicator", payload.status);
                 updateLocalReason("");
             } else if (payload.event === "LocalStatus") {
+                 lastLocalStatus = payload.status;
                  updateStatusIndicator("local_status_indicator", payload.status);
                  updateLocalReason(payload.status === "connected" ? "" : payload.reason);
             } else if (payload.event === "ClientPathCheck") {
@@ -415,14 +650,15 @@ function renderUpdateNotice(version) {
     const el = document.getElementById("update_notice");
     if (!el) return;
     const v = (version || "").toString().trim();
+    lastUpdateVersion = v;
     if (!v) {
         el.classList.add("hidden");
         return;
     }
-    el.textContent = "🔄 Установлено обновление " + v + " — перезапустите Stream Deck. ";
+    el.textContent = t("update_notice", { v: v });
     const link = document.createElement("span");
     link.className = "pi-update-link";
-    link.textContent = "Что нового";
+    link.textContent = t("whats_new");
     link.addEventListener("click", function () {
         openExternal("https://github.com/Judd1zzz/yandex-music-streamdeck/releases/tag/v" + v);
     });
@@ -430,10 +666,22 @@ function renderUpdateNotice(version) {
     el.classList.remove("hidden");
 }
 
+function localizeReason(reason) {
+    const raw = (reason || "").toString();
+    if (!raw) return "";
+    if (I18N.en["reason_" + raw] != null) {
+        const portInput = document.getElementById("local_port_input");
+        const port = globalSettings.local_port || (portInput && portInput.value) || 9222;
+        return t("reason_" + raw, { port: port });
+    }
+    return raw;
+}
+
 function updateLocalReason(reason) {
     const el = document.getElementById("local_status_reason");
     if (!el) return;
-    const text = reason || "";
+    lastLocalReason = reason || "";
+    const text = localizeReason(lastLocalReason);
     el.textContent = text;
     el.classList.toggle("hidden", !text);
 }
@@ -441,26 +689,26 @@ function updateLocalReason(reason) {
 function updateStatusIndicator(id, status) {
     const el = document.getElementById(id);
     if (!el) return;
-    
+
     if (status === "valid" || status === "connected") {
-        el.textContent = "ПОДКЛЮЧЕНО";
-        el.style.background = "#1b5e20"; 
+        el.textContent = t("status_connected");
+        el.style.background = "#1b5e20";
         el.style.color = "#a5d6a7";
     } else if (status === "invalid") {
-        el.textContent = "НЕВАЛИДНО";
-        el.style.background = "#b71c1c"; 
+        el.textContent = t("status_invalid");
+        el.style.background = "#b71c1c";
         el.style.color = "#ffcdd2";
     } else if (status === "offline" || status === "disconnected") {
-        el.textContent = "ОФФЛАЙН";
-        el.style.background = "#424242"; 
+        el.textContent = t("status_offline");
+        el.style.background = "#424242";
         el.style.color = "#bdbdbd";
     } else if (status === "loading") {
-         el.textContent = "ЗАГРУЗКА...";
-        el.style.background = "#ff6f00"; 
+         el.textContent = t("status_loading");
+        el.style.background = "#ff6f00";
         el.style.color = "#ffe0b2";
     } else {
         el.textContent = "UNKNOWN";
-        el.style.background = "#ff6f00"; 
+        el.style.background = "#ff6f00";
         el.style.color = "#ffe0b2";
     }
 }

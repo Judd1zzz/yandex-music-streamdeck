@@ -2,20 +2,20 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>Настройка токена Яндекс Музыки</title>
+    <title>Yandex Music Token Setup</title>
     <link rel="stylesheet" href="css/token.css">
 </head>
 <body>
     <div class="card">
-        <h2>Аутентификация</h2>
+        <h2 data-i18n="title">Authentication</h2>
 
-        <input type="text" id="token" placeholder="Вставьте токен сюда..." autocomplete="off">
+        <input type="text" id="token" placeholder="Paste your token here..." data-i18n-placeholder="ph_token" autocomplete="off">
 
         <div id="status_msg" class="status-msg"></div>
-        <button id="saveBtn" onclick="save()">Обновить токен</button>
+        <button id="saveBtn" onclick="save()" data-i18n="btn_save">Update token</button>
     </div>
 
-    <div class="footer">Для проверки токена нужен запущенный локальный API-сервер (api_for_plugin)</div>
+    <div class="footer" data-i18n="footer">Validating the token requires the local API server (api_for_plugin) to be running</div>
 
     <script src="js/token.js"></script>
 </body>

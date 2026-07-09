@@ -1628,7 +1628,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sd-host"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "futures-util",
  "sd-protocol",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "sd-protocol"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2750,7 +2750,7 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "xtask"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "image",
@@ -2761,7 +2761,7 @@ dependencies = [
 
 [[package]]
 name = "ym-cdp"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2777,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "ym-core"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "ym-discord"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "discord-rich-presence",
  "tokio",
@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "ym-download"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "ym-launch"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -2841,7 +2841,7 @@ dependencies = [
 
 [[package]]
 name = "ym-model"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2851,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "ym-plugin"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "ym-render"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "ab_glyph",
  "base64",
@@ -2887,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "ym-update"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -2903,7 +2903,7 @@ dependencies = [
 
 [[package]]
 name = "ym-ynison"
-version = "2.2.0"
+version = "2.3.0"
 
 [[package]]
 name = "yoke"

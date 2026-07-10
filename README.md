@@ -27,7 +27,11 @@
 <p align="center">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
-  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/Get_it_on-StreamDock_Store-6E56CF?style=for-the-badge" alt="Get it on StreamDock Store"></a>
+</p>
+
+<p align="center">
+  <a href="https://marketplace.elgato.com/product/yandex-music-integration-43741c24-1784-4492-be32-c631d7c55829"><img src="https://docs.elgato.com/img/badges/get-it-on-marketplace--dark.svg" alt="Get it on Elgato Marketplace" height="40"></a>
+  <a href="https://space.key123.vip/product/20260706002752"><img src="assets/badges/get-it-on-streamdock--dark.svg" alt="Get it on StreamDock Store" height="40"></a>
 </p>
 
 <p align="center">
@@ -135,10 +139,25 @@ Use the regular links without RUS. On first launch the software will offer to sw
 
 ## Installation
 
+### ⚡ Quick install — Elgato Marketplace (Stream Deck)
+
+<p align="left">
+  <a href="https://marketplace.elgato.com/product/yandex-music-integration-43741c24-1784-4492-be32-c631d7c55829"><img src="https://docs.elgato.com/img/badges/get-it-on-marketplace--dark.svg" alt="Get it on Elgato Marketplace" height="40"></a>
+</p>
+
+Using the official Elgato Stream Deck? The plugin is on the Marketplace — one click and you're done:
+
+1. Open the [plugin page on Elgato Marketplace](https://marketplace.elgato.com/product/yandex-music-integration-43741c24-1784-4492-be32-c631d7c55829).
+2. Click **Get** — the Stream Deck app picks it up and installs the plugin automatically.
+
+> Updates are delivered by the Marketplace itself. Note: the Marketplace build has no *Download Track* action and no built-in self-updater (the store handles updates) — everything else is identical to the GitHub version.
+
+---
+
 ### ⚡ Quick install — StreamDock Store (Mirabox/Ajazz)
 
-<p align="center">
-  <a href="https://space.key123.vip/product/20260706002752"><img src="https://img.shields.io/badge/Get_it_on-StreamDock_Store-6E56CF?style=for-the-badge" alt="Get it on StreamDock Store"></a>
+<p align="left">
+  <a href="https://space.key123.vip/product/20260706002752"><img src="assets/badges/get-it-on-streamdock--dark.svg" alt="Get it on StreamDock Store" height="40"></a>
 </p>
 
 The plugin is available in the official StreamDock Store — no archives, no Terminal:
@@ -148,13 +167,13 @@ The plugin is available in the official StreamDock Store — no archives, no Ter
 
 > Requires StreamDock **3.10.185.1120 or newer** with your Mirabox Space account signed in inside the app. In the app itself the plugin lives in the **Space** section (not the legacy "Store" tab). On macOS this method needs no quarantine workarounds.
 >
-> On Elgato software, or prefer doing it by hand? Follow steps 1–4 below.
+> Prefer doing it by hand? Follow steps 1–4 below.
 
 ---
 
 ### 1. Download the plugin (manual install)
 
-<p align="center">
+<p align="left">
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://custom-icon-badges.demolab.com/badge/Download_for_Windows-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Download for Windows"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
 </p>

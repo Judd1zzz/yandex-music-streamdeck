@@ -1,0 +1,14 @@
+<svg width="146" height="40" viewBox="0 0 146 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M8 0.4H138C142.197 0.4 145.6 3.80264 145.6 8V32C145.6 36.1974 142.197 39.6 138 39.6H8C3.80264 39.6 0.4 36.1974 0.4 32V8C0.4 3.80264 3.80264 0.4 8 0.4Z" fill="black"/>
+<path d="M8 0.4H138C142.197 0.4 145.6 3.80264 145.6 8V32C145.6 36.1974 142.197 39.6 138 39.6H8C3.80264 39.6 0.4 36.1974 0.4 32V8C0.4 3.80264 3.80264 0.4 8 0.4Z" stroke="#A6A6A6" stroke-width="0.8"/>
+<g>
+<rect x="10" y="13.5" width="5.6" height="5.6" rx="1.4" fill="white"/>
+<rect x="17.6" y="13.5" width="5.6" height="5.6" rx="1.4" fill="white"/>
+<rect x="25.2" y="13.5" width="5.6" height="5.6" rx="1.4" fill="#8B78E6"/>
+<rect x="10" y="21.1" width="5.6" height="5.6" rx="1.4" fill="white"/>
+<rect x="17.6" y="21.1" width="5.6" height="5.6" rx="1.4" fill="white"/>
+<rect x="25.2" y="21.1" width="5.6" height="5.6" rx="1.4" fill="white"/>
+</g>
+<text x="38" y="17.5" fill="white" font-family="-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="10">Get it on</text>
+<text x="38" y="31.5" fill="white" font-family="-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="-0.3">StreamDock</text>
+</svg>

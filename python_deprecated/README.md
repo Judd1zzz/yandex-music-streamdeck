@@ -1,8 +1,9 @@
 # Python-бэкенд (УСТАРЕЛО)
 
 Это **прежняя Python-реализация** бэкенда плагина `com.judd1.yandex_music.sdPlugin`.
-Она **заменена Rust-портом** (`../rust/`), который теперь и поставляется (манифест
-плагина запускает скомпилированный бинарь `bin/ym-plugin`, а не `run.sh`/`main.py`).
+Она **заменена Rust-портом** (`../com.judd1.yandex_music.sdPlugin/src/`), который теперь и
+поставляется (манифест плагина запускает скомпилированный бинарь `bin/ym-plugin`, а не
+`run.sh`/`main.py`).
 
 Оставлена для **сверки и отката**, не входит в поставляемый пакет плагина.
 
@@ -16,10 +17,10 @@
 ## Чего здесь НЕТ
 
 - `injected_api.js` — он живой (вшивается в Rust-бинарь), переехал в
-  `../rust/crates/ym-cdp/assets/injected_api.js`; его Node-тесты — в
-  `../rust/crates/ym-cdp/tests_js/`. Поэтому `src/core/cdp.py` тут на него уже не
-  указывает — для запуска этой Python-версии скрипт нужно вернуть в
-  `src/core/scripts/injected_api.js`.
+  `../com.judd1.yandex_music.sdPlugin/src/crates/ym-cdp/assets/injected_api.js`; его
+  Node-тесты — в `../com.judd1.yandex_music.sdPlugin/src/crates/ym-cdp/tests_js/`.
+  Поэтому `src/core/cdp.py` тут на него уже не указывает — для запуска этой
+  Python-версии скрипт нужно вернуть в `src/core/scripts/injected_api.js`.
 
 ## Откат на Python (если понадобится)
 

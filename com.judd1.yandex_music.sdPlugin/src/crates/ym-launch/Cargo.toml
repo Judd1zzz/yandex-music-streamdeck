@@ -2,7 +2,7 @@
 name = "ym-launch"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 ym-model.workspace = true

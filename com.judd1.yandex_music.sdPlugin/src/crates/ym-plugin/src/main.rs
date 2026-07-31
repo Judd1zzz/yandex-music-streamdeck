@@ -45,8 +45,8 @@ fn make_downloader() -> Arc<dyn ym_core::Downloader> {
 fn spawn_update(shared: Arc<Shared>) -> tokio::task::JoinHandle<()> {
     let (owner, repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
     tokio::spawn(async move {
-        if let Some(v) = ym_update::run(&owner, &repo, env!("CARGO_PKG_VERSION")).await {
-            shared.apply_update_notice(v);
+        if let Some(o) = ym_update::run(&owner, &repo, env!("CARGO_PKG_VERSION")).await {
+            shared.apply_update_notice(o.version, o.notes, o.url);
         }
     })
 }
@@ -75,6 +75,19 @@ fn launch_cache_path() -> std::path::PathBuf {
         .ok()
         .and_then(|e| e.parent().and_then(|b| b.parent()).map(|d| d.join(".ym_client_path")))
         .unwrap_or_else(|| std::env::temp_dir().join(".ym_client_path"))
+}
+
+fn rival_process_running(sys: &mut sysinfo::System) -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    let kind = ProcessRefreshKind::nothing()
+        .with_cmd(UpdateKind::Always)
+        .with_exe(UpdateKind::Always)
+        .with_cwd(UpdateKind::Always);
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+    sys.processes().values().any(|p| {
+        let cmd: Vec<String> = p.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        ym_core::rival::proc_is_rival(p.exe(), &cmd, p.cwd())
+    })
 }
 
 fn client_path_report(raw: &str) -> ym_core::ClientPathReport {
@@ -113,9 +126,17 @@ fn parse_update_repo(v: Option<&str>) -> (String, String) {
     ("Judd1zzz".to_owned(), "yandex-music-streamdeck".to_owned())
 }
 
-#[tokio::main]
-async fn main() {
-    log::init();
+fn main() {
+    let local_offset = ym_core::capture_local_offset();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("не удалось создать tokio runtime");
+    rt.block_on(async_main(local_offset));
+}
+
+async fn async_main(local_offset: i32) {
+    let (log_ring, logs_flag) = log::init();
     single_instance::ensure_single_instance();
     tracing::info!("Plugin Start (ym-plugin {})", env!("CARGO_PKG_VERSION"));
 
@@ -137,11 +158,43 @@ async fn main() {
     cdp.set_download_tx(dl_tx);
     let cdp_task = cdp.start(shutdown.clone());
     let launch_link = cdp.clone();
+    let rival_cdp = cdp.clone();
     let shared = Shared::wired(bus, cdp, render, make_downloader());
-    let discord_task = ym_discord::spawn(shared.subscribe(), shared.subscribe_discord(), shutdown.clone());
+    shared.set_current_version(env!("CARGO_PKG_VERSION").to_owned());
+    shared.set_log_ring(log_ring);
+    shared.set_logs_enabled_flag(logs_flag);
+    shared.set_log_dir(log::default_log_dir());
+    shared.set_stats_dir(log::default_log_dir(), local_offset);
+    shared.set_time_offset(local_offset);
+    shared.set_edition(if cfg!(feature = "downloads") { "full" } else { "elgato" });
+    let (discord_status_tx, mut discord_status_rx) = tokio::sync::watch::channel::<String>("disabled".to_owned());
+    let discord_task = ym_discord::spawn(
+        shared.subscribe(),
+        shared.subscribe_discord(),
+        shutdown.clone(),
+        discord_status_tx,
+        shared.cdp.clone(),
+    );
+    let discord_status_shared = shared.clone();
+    let discord_status_task = tokio::spawn(async move {
+        while discord_status_rx.changed().await.is_ok() {
+            let s = discord_status_rx.borrow_and_update().clone();
+            discord_status_shared.apply_discord_status(s);
+        }
+    });
     let (kick_tx, kick_rx) = mpsc::channel::<()>(4);
     shared.set_launch_kick(kick_tx);
     shared.set_client_path_checker(Arc::new(client_path_report));
+    shared.set_folder_picker(Arc::new(ym_core::folder_dialog::pick));
+    #[cfg(feature = "self-update")]
+    {
+        let (u_owner, u_repo) = parse_update_repo(std::env::var("YM_UPDATE_REPO").ok().as_deref());
+        let cur = env!("CARGO_PKG_VERSION").to_owned();
+        shared.set_update_checker(Arc::new(move || {
+            let (o, r, c) = (u_owner.clone(), u_repo.clone(), cur.clone());
+            Box::pin(async move { ym_update::check(&o, &r, &c).await })
+        }));
+    }
     let update_task = spawn_update(shared.clone());
     let (reason_tx, mut reason_rx) = tokio::sync::watch::channel::<Option<String>>(None);
     let launch_task = ym_launch::spawn(ym_launch::WatcherDeps {
@@ -163,6 +216,23 @@ async fn main() {
         }
     });
     let dl_task = tokio::spawn(download_consumer(dl_rx, shared.clone(), shutdown.clone()));
+    let stats_task = ym_core::stats::spawn(shared.clone(), shared.subscribe(), shutdown.clone());
+    let rival_shared = shared.clone();
+    let rival_shutdown = shutdown.clone();
+    let rival_task = tokio::spawn(async move {
+        let installed =
+            ym_core::rival::plugins_dir().map(|d| ym_core::rival::installed_in(&d)).unwrap_or(false);
+        let mut sys = sysinfo::System::new();
+        loop {
+            let running = rival_process_running(&mut sys);
+            let cdp_seen = rival_cdp.probe_rival().await;
+            rival_shared.set_rival(ym_core::rival::RivalState { installed, active: running || cdp_seen });
+            tokio::select! {
+                _ = rival_shutdown.cancelled() => break,
+                _ = tokio::time::sleep(Duration::from_secs(20)) => {}
+            }
+        }
+    });
     let factory: ActionFactory = Arc::new(build_action);
 
     let mut host_cfg = HostConfig::new(args.port, args.plugin_uuid.clone(), args.register_event.clone());
@@ -181,16 +251,22 @@ async fn main() {
     let aborts = [
         cdp_task.abort_handle(),
         discord_task.abort_handle(),
+        discord_status_task.abort_handle(),
         dl_task.abort_handle(),
+        stats_task.abort_handle(),
         launch_task.abort_handle(),
         reason_task.abort_handle(),
+        rival_task.abort_handle(),
     ];
     let all = async {
         let _ = cdp_task.await;
         let _ = discord_task.await;
+        let _ = discord_status_task.await;
         let _ = dl_task.await;
+        let _ = stats_task.await;
         let _ = launch_task.await;
         let _ = reason_task.await;
+        let _ = rival_task.await;
     };
     if tokio::time::timeout(Duration::from_secs(3), all).await.is_err() {
         tracing::warn!("часть фоновых задач не завершилась за 3с — принудительная отмена");

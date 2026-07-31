@@ -1,11 +1,15 @@
 body { background-color: #2d2d2d; color: #d8d8d8; font-family: system-ui; }
 .hidden { display: none !important; }
 .token-info { font-size: 10px; color: #888; padding: 5px 3px; }
-.btn-premium { 
-    background: #FFBD00; color: #1a1a1b; border: none; padding: 8px 15px; 
+.btn-premium {
+    background: #FFBD00; color: #1a1a1b; border: none; padding: 8px 15px;
     border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
 }
 .btn-premium:hover { background: #FFC800; }
+
+.pi-dashboard-btn { margin-bottom: 12px; }
+.pi-dashboard-ic { flex: 0 0 auto; }
 
 .btn-secondary {
     background: #4a4a4a; color: #eee; border: none; padding: 4px 10px;

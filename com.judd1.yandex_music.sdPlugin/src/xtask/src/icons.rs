@@ -4,17 +4,20 @@ use anyhow::{Context, Result};
 use image::imageops::FilterType;
 use image::{Rgba, RgbaImage};
 
-pub const ACTION_ICONS: [&str; 10] = [
+pub const ACTION_ICONS: [&str; 13] = [
     "yandex_music_play_pause",
     "yandex_music_next",
     "yandex_music_prev",
     "yandex_music_info",
     "yandex_music_like",
     "yandex_music_dislike",
+    "yandex_music_shuffle",
+    "yandex_music_repeat",
     "yandex_music_vol_up",
     "yandex_music_vol_down",
     "yandex_music_vol_level",
     "yandex_music_vol_mute",
+    "ym",
 ];
 
 const YELLOW: Rgba<u8> = Rgba([255, 204, 0, 255]);

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use ab_glyph::FontRef;
 use image::{Rgba, RgbaImage};
 
-use crate::text::{blend, draw_text, text_width};
+use crate::progress::format_time;
+use crate::text::{blend, draw_text, draw_text_centered, text_width};
 use crate::{embedded_image, to_data_uri};
 
 const W: u32 = 144;
@@ -12,6 +13,8 @@ const RADIUS: f32 = 20.0;
 const SAFE: f32 = (W - 10) as f32;
 const TITLE_SIZE: f32 = 28.0;
 const ARTIST_SIZE: f32 = 20.0;
+const TIME_SIZE: f32 = 16.0;
+const TIME_TOP: f32 = 6.0;
 const WHITE: [u8; 4] = [255, 255, 255, 255];
 const GRAY: [u8; 4] = [180, 180, 180, 255];
 
@@ -23,15 +26,22 @@ pub struct InfoInput {
     pub show_cover: bool,
     pub show_title: bool,
     pub show_artist: bool,
+    pub show_timecodes: bool,
+    pub progress_ms: f64,
+    pub duration_ms: f64,
 }
 
 pub fn render(font: &FontRef, input: InfoInput) -> (String, bool) {
     let mut img = RgbaImage::new(W, H);
 
     let has_cover = input.show_cover && paste_cover(&mut img, &input);
+    let show_time = input.show_timecodes && input.duration_ms > 0.0;
 
     if has_cover && (input.show_title || input.show_artist) {
         darken_bottom(&mut img);
+    }
+    if has_cover && show_time {
+        darken_top(&mut img);
     }
 
     let mut needs_scroll = false;
@@ -42,6 +52,10 @@ pub fn render(font: &FontRef, input: InfoInput) -> (String, bool) {
     }
     if input.show_artist && !input.artist.is_empty() {
         needs_scroll |= draw_line(font, &mut img, ARTIST_SIZE, artist_y, &input.artist, GRAY, input.marquee_offset as f32 * 0.8);
+    }
+    if show_time {
+        let text = format!("{} / {}", format_time(input.progress_ms), format_time(input.duration_ms));
+        draw_text_centered(&mut img, font, TIME_SIZE, TIME_TOP, &text, WHITE);
     }
 
     if has_cover {
@@ -71,6 +85,17 @@ fn darken_bottom(img: &mut RgbaImage) {
     let span = H as f32 * 0.6;
     for y in start..H {
         let a = (240.0 * (y as f32 - H as f32 * 0.4) / span).round().clamp(0.0, 240.0);
+        let cov = a / 255.0;
+        for x in 0..W {
+            blend(img, x as i32, y as i32, [0, 0, 0, 255], cov);
+        }
+    }
+}
+
+fn darken_top(img: &mut RgbaImage) {
+    let span = H as f32 * 0.28;
+    for y in 0..span as u32 {
+        let a = (150.0 * (1.0 - y as f32 / span)).round().clamp(0.0, 150.0);
         let cov = a / 255.0;
         for x in 0..W {
             blend(img, x as i32, y as i32, [0, 0, 0, 255], cov);
@@ -155,28 +180,43 @@ mod tests {
         Arc::new(c)
     }
 
-    #[test]
-    fn renders_valid_png_with_cover() {
-        let font = load_font();
-        let (uri, scroll) = render(
-            &font,
-            InfoInput {
-                cover: Some(solid_cover()),
-                title: "Short".into(),
-                artist: "Artist".into(),
-                marquee_offset: 0,
-                show_cover: true,
-                show_title: true,
-                show_artist: true,
-            },
-        );
-        assert!(uri.starts_with("data:image/png;base64,"));
-        assert!(!scroll, "короткий заголовок не должен скроллиться");
+    fn base_input() -> InfoInput {
+        InfoInput {
+            cover: Some(solid_cover()),
+            title: "Short".into(),
+            artist: "Artist".into(),
+            marquee_offset: 0,
+            show_cover: true,
+            show_title: true,
+            show_artist: true,
+            show_timecodes: false,
+            progress_ms: 0.0,
+            duration_ms: 0.0,
+        }
+    }
+
+    fn decode(uri: &str) -> RgbaImage {
         use base64::Engine;
         let png = base64::engine::general_purpose::STANDARD
             .decode(uri.strip_prefix("data:image/png;base64,").unwrap())
             .unwrap();
-        let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
+        image::load_from_memory(&png).unwrap().to_rgba8()
+    }
+
+    fn top_band_has_bright_pixel(img: &RgbaImage) -> bool {
+        (4..26).any(|y| (0..W).any(|x| {
+            let p = img.get_pixel(x, y);
+            p[0] > 200 && p[3] > 0
+        }))
+    }
+
+    #[test]
+    fn renders_valid_png_with_cover() {
+        let font = load_font();
+        let (uri, scroll) = render(&font, base_input());
+        assert!(uri.starts_with("data:image/png;base64,"));
+        assert!(!scroll, "короткий заголовок не должен скроллиться");
+        let decoded = decode(&uri);
         assert_eq!(decoded.dimensions(), (144, 144));
         assert_eq!(decoded.get_pixel(0, 0)[3], 0, "угол должен быть прозрачным");
         assert!(decoded.get_pixel(72, 72)[3] > 0, "центр непрозрачный");
@@ -191,12 +231,66 @@ mod tests {
                 cover: None,
                 title: "Очень длинное название трека которое точно не влезает".into(),
                 artist: String::new(),
-                marquee_offset: 10,
-                show_cover: false,
                 show_title: true,
                 show_artist: false,
+                show_cover: false,
+                marquee_offset: 10,
+                ..base_input()
             },
         );
         assert!(scroll, "длинный заголовок должен скроллиться");
+    }
+
+    #[test]
+    fn timecodes_drawn_on_top_when_enabled() {
+        let font = load_font();
+        let on = InfoInput {
+            show_timecodes: true,
+            progress_ms: 83_000.0,
+            duration_ms: 225_000.0,
+            ..base_input()
+        };
+        let (uri, _) = render(&font, on);
+        assert!(top_band_has_bright_pixel(&decode(&uri)), "с тайм-кодами сверху должен быть светлый текст");
+        let (uri_off, _) = render(&font, base_input());
+        assert!(!top_band_has_bright_pixel(&decode(&uri_off)), "без тайм-кодов верх остаётся чистой обложкой");
+    }
+
+    #[test]
+    fn timecodes_hidden_when_duration_zero() {
+        let font = load_font();
+        let input = InfoInput { show_timecodes: true, progress_ms: 10_000.0, duration_ms: 0.0, ..base_input() };
+        let (uri, _) = render(&font, input);
+        let img = decode(&uri);
+        assert!(!top_band_has_bright_pixel(&img));
+        assert_eq!(img.get_pixel(72, 2)[0], 50, "затемнение сверху не применяется без длительности");
+    }
+
+    #[test]
+    fn darken_top_dims_cover_under_time() {
+        let font = load_font();
+        let input = InfoInput {
+            show_timecodes: true,
+            progress_ms: 83_000.0,
+            duration_ms: 225_000.0,
+            ..base_input()
+        };
+        let (uri, _) = render(&font, input);
+        let img = decode(&uri);
+        assert!(img.get_pixel(10, 20)[0] < 40, "верх под временем затемнён");
+        assert_eq!(img.get_pixel(10, 50)[0], 50, "середина обложки не тронута");
+    }
+
+    #[test]
+    fn timecodes_do_not_affect_needs_scroll() {
+        let font = load_font();
+        let input = InfoInput {
+            show_timecodes: true,
+            progress_ms: 83_000.0,
+            duration_ms: 225_000.0,
+            ..base_input()
+        };
+        let (_uri, scroll) = render(&font, input);
+        assert!(!scroll);
     }
 }

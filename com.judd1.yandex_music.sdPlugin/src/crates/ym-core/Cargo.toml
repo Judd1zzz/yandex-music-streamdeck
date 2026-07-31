@@ -2,7 +2,7 @@
 name = "ym-core"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 sd-protocol.workspace = true
@@ -14,8 +14,10 @@ async-trait.workspace = true
 anyhow.workspace = true
 bitflags.workspace = true
 tracing.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 arboard.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

@@ -4,11 +4,21 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use ssh_key::{PublicKey, SshSig};
 
 const UA: &str = "ym-plugin-updater";
+const GITHUB_API: &str = "https://api.github.com";
 const PLUGIN_DIR_NAME: &str = "com.judd1.yandex_music.sdPlugin";
 const REPLACE_RETRIES: usize = 5;
 const REPLACE_RETRY_DELAY: Duration = Duration::from_millis(250);
+const SUMS_NAME: &str = "SHA256SUMS";
+const SUMS_SIG_NAME: &str = "SHA256SUMS.sig";
+const SIG_NAMESPACE: &str = "file";
+const SIGNING_KEYS: &[&str] = &[
+    "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBFXhPYDjtB78qznuYA6ZTDPfOP/zlk4huaokRFcoNXYAAAAB3NzaDpnaXQ=",
+    "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBi2OUX3KX6jyBjfyTNeDi5TeLWQx5vMboxrbMoAsxvmAAAAEnNzaDpyZWxlYXNlLWJhY2t1cA==",
+];
 
 fn with_retries_delayed<T>(
     what: &str,
@@ -37,11 +47,20 @@ fn with_retries<T>(what: &str, op: impl FnMut() -> std::io::Result<T>) -> Result
 pub struct Release {
     pub tag: String,
     pub assets: Vec<Asset>,
+    pub body: Option<String>,
+    pub html_url: Option<String>,
 }
 
 pub struct Asset {
     pub name: String,
     pub url: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct UpdateOutcome {
+    pub version: String,
+    pub notes: Option<String>,
+    pub url: Option<String>,
 }
 
 pub fn parse_release(v: &Value) -> Result<Release> {
@@ -59,7 +78,13 @@ pub fn parse_release(v: &Value) -> Result<Release> {
                 .collect()
         })
         .unwrap_or_default();
-    Ok(Release { tag, assets })
+    let body = v
+        .get("body")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .filter(|s| !s.trim().is_empty());
+    let html_url = v.get("html_url").and_then(Value::as_str).map(str::to_owned);
+    Ok(Release { tag, assets, body, html_url })
 }
 
 pub fn is_newer(latest: &str, current: &str) -> bool {
@@ -84,6 +109,44 @@ pub fn pick_asset<'a>(rel: &'a Release, os: &str) -> Option<&'a Asset> {
         .iter()
         .find(|a| a.name == exact)
         .or_else(|| rel.assets.iter().find(|a| ym_model::dist::is_release_asset(&a.name, os)))
+}
+
+fn required_asset<'a>(rel: &'a Release, name: &str) -> Result<&'a Asset> {
+    rel.assets
+        .iter()
+        .find(|a| a.name == name)
+        .ok_or_else(|| anyhow!("в релизе {} нет {name} — обновление отклонено", rel.tag))
+}
+
+async fn fetch_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
+    Ok(client.get(url).send().await?.error_for_status()?.bytes().await?.to_vec())
+}
+
+fn verify_sums_with(keys: &[&str], sums: &[u8], sig: &SshSig) -> Result<()> {
+    for key in keys {
+        let key = PublicKey::from_openssh(key).context("разбор доверенного ключа")?;
+        if key.verify(SIG_NAMESPACE, sums, sig).is_ok() {
+            return Ok(());
+        }
+    }
+    Err(anyhow!("подпись {SUMS_NAME} не соответствует ни одному доверенному ключу"))
+}
+
+fn verify_release_with(keys: &[&str], zip_name: &str, zip: &[u8], sums: &[u8], sig_pem: &[u8]) -> Result<()> {
+    let sig = SshSig::from_pem(sig_pem).with_context(|| format!("разбор {SUMS_SIG_NAME}"))?;
+    verify_sums_with(keys, sums, &sig)?;
+    let text = std::str::from_utf8(sums).with_context(|| format!("{SUMS_NAME} не в UTF-8"))?;
+    let expected = ym_model::dist::find_sum(text, zip_name)
+        .ok_or_else(|| anyhow!("в {SUMS_NAME} нет строки для {zip_name}"))?;
+    let actual = ym_model::dist::hex_lower(&Sha256::digest(zip));
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(anyhow!("sha256 архива {zip_name} не совпадает с подписанным"));
+    }
+    Ok(())
+}
+
+pub fn verify_release(zip_name: &str, zip: &[u8], sums: &[u8], sig_pem: &[u8]) -> Result<()> {
+    verify_release_with(SIGNING_KEYS, zip_name, zip, sums, sig_pem)
 }
 
 fn looks_installed() -> bool {
@@ -162,8 +225,8 @@ fn apply_zip(bytes: &[u8], dir: &Path, bin: &str) -> Result<()> {
     })
 }
 
-async fn fetch_latest(client: &reqwest::Client, owner: &str, repo: &str) -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
+async fn fetch_latest(client: &reqwest::Client, api_base: &str, owner: &str, repo: &str) -> Result<Release> {
+    let url = format!("{api_base}/repos/{owner}/{repo}/releases/latest");
     let v: Value = client.get(url).send().await?.error_for_status()?.json().await?;
     parse_release(&v)
 }
@@ -191,26 +254,41 @@ fn cleanup_legacy(dir: &Path) {
     }
 }
 
-async fn check_and_apply(owner: &str, repo: &str, current: &str) -> Result<Option<String>> {
+async fn check_and_apply(owner: &str, repo: &str, current: &str) -> Result<Option<UpdateOutcome>> {
+    check_and_apply_at(GITHUB_API, owner, repo, current).await
+}
+
+async fn check_and_apply_at(api_base: &str, owner: &str, repo: &str, current: &str) -> Result<Option<UpdateOutcome>> {
     let client = reqwest::Client::builder()
         .user_agent(UA)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(180))
         .build()?;
-    let rel = fetch_latest(&client, owner, repo).await?;
+    let rel = fetch_latest(&client, api_base, owner, repo).await?;
     if !is_newer(&rel.tag, current) {
         return Ok(None);
     }
     let os = std::env::consts::OS;
     let asset = pick_asset(&rel, os).ok_or_else(|| anyhow!("в релизе {} нет ассета для {os}", rel.tag))?;
-    let bytes = client.get(&asset.url).send().await?.error_for_status()?.bytes().await?.to_vec();
+    let exact = ym_model::dist::release_zip_name(os, rel.tag.trim().trim_start_matches('v'));
+    if asset.name != exact {
+        return Err(anyhow!("имя ассета {} не соответствует тегу {} — обновление отклонено", asset.name, rel.tag));
+    }
+    let bytes = fetch_bytes(&client, &asset.url).await?;
+    let sums = fetch_bytes(&client, &required_asset(&rel, SUMS_NAME)?.url).await?;
+    let sig = fetch_bytes(&client, &required_asset(&rel, SUMS_SIG_NAME)?.url).await?;
+    verify_release(&asset.name, &bytes, &sums, &sig)
+        .with_context(|| format!("проверка целостности релиза {}", rel.tag))?;
+    tracing::info!("ym-update: подпись релиза {} проверена", rel.tag);
     let dir = plugin_dir()?;
     let version = rel.tag.trim_start_matches('v').to_owned();
+    let notes = rel.body.clone();
+    let url = rel.html_url.clone();
     tokio::task::spawn_blocking(move || apply_zip(&bytes, &dir, bin_name())).await??;
-    Ok(Some(version))
+    Ok(Some(UpdateOutcome { version, notes, url }))
 }
 
-pub async fn run(owner: &str, repo: &str, current: &str) -> Option<String> {
+pub async fn run(owner: &str, repo: &str, current: &str) -> Option<UpdateOutcome> {
     if !looks_installed() {
         tracing::debug!("ym-update: бинарь не в каталоге bin/ — автообновление пропущено");
         return None;
@@ -220,9 +298,9 @@ pub async fn run(owner: &str, repo: &str, current: &str) -> Option<String> {
         cleanup_legacy(&dir);
     }
     match check_and_apply(owner, repo, current).await {
-        Ok(Some(v)) => {
-            tracing::info!("ym-update: применено обновление {v} (вступит в силу при следующем запуске)");
-            Some(v)
+        Ok(Some(o)) => {
+            tracing::info!("ym-update: применено обновление {} (вступит в силу при следующем запуске)", o.version);
+            Some(o)
         }
         Ok(None) => {
             tracing::debug!("ym-update: обновлений нет (текущая {current})");
@@ -233,6 +311,29 @@ pub async fn run(owner: &str, repo: &str, current: &str) -> Option<String> {
             None
         }
     }
+}
+
+pub async fn check(owner: &str, repo: &str, current: &str) -> Option<ym_model::UpdateCheck> {
+    let client = reqwest::Client::builder()
+        .user_agent(UA)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let rel = match fetch_latest(&client, GITHUB_API, owner, repo).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("ym-update check: {e:#}");
+            return None;
+        }
+    };
+    let latest = rel.tag.trim().trim_start_matches('v').to_owned();
+    Some(ym_model::UpdateCheck {
+        has_update: is_newer(&rel.tag, current),
+        latest,
+        notes: rel.body,
+        url: rel.html_url,
+    })
 }
 
 #[cfg(test)]
@@ -298,6 +399,8 @@ mod tests {
                 Asset { name: "YandexMusicPlugin-windows-1.1.0.zip".into(), url: "win".into() },
                 Asset { name: "YandexMusicPlugin-darwin-1.1.0.zip".into(), url: "mac".into() },
             ],
+            body: None,
+            html_url: None,
         };
         assert_eq!(pick_asset(&rel, "macos").unwrap().url, "mac");
         assert_eq!(pick_asset(&rel, "windows").unwrap().url, "win");
@@ -312,6 +415,8 @@ mod tests {
                 Asset { name: "YandexMusicPlugin-darwin-1.1.0.sha256.zip".into(), url: "junk".into() },
                 Asset { name: "YandexMusicPlugin-darwin-1.1.0.zip".into(), url: "real".into() },
             ],
+            body: None,
+            html_url: None,
         };
         assert_eq!(pick_asset(&rel, "macos").unwrap().url, "real");
     }
@@ -321,6 +426,8 @@ mod tests {
         let rel = Release {
             tag: "v1.1.0".into(),
             assets: vec![Asset { name: "YandexMusicPlugin-darwin-build7.zip".into(), url: "fb".into() }],
+            body: None,
+            html_url: None,
         };
         assert_eq!(pick_asset(&rel, "macos").unwrap().url, "fb");
     }
@@ -329,6 +436,8 @@ mod tests {
     fn parse_github_release_json() {
         let v = serde_json::json!({
             "tag_name": "v1.2.0",
+            "html_url": "https://github.com/x/releases/tag/v1.2.0",
+            "body": "• fix A\n• fix B",
             "assets": [
                 {"name": "YandexMusicPlugin-darwin-1.2.0.zip", "browser_download_url": "https://x/d.zip"},
                 {"name": "YandexMusicPlugin-windows-1.2.0.zip", "browser_download_url": "https://x/w.zip"}
@@ -338,6 +447,8 @@ mod tests {
         assert_eq!(r.tag, "v1.2.0");
         assert_eq!(r.assets.len(), 2);
         assert_eq!(r.assets[0].url, "https://x/d.zip");
+        assert_eq!(r.body.as_deref(), Some("• fix A\n• fix B"));
+        assert_eq!(r.html_url.as_deref(), Some("https://github.com/x/releases/tag/v1.2.0"));
     }
 
     fn make_zip() -> Vec<u8> {
@@ -447,5 +558,221 @@ mod tests {
     async fn run_returns_none_when_not_installed() {
         assert!(!looks_installed(), "тестовый бинарь не должен выглядеть установленным");
         assert_eq!(run("owner", "repo", "0.0.1").await, None);
+    }
+
+    use ssh_key::private::Ed25519Keypair;
+    use ssh_key::{HashAlg, LineEnding, PrivateKey};
+
+    fn soft_key(seed: u8) -> PrivateKey {
+        Ed25519Keypair::from_seed(&[seed; 32]).into()
+    }
+
+    fn signed_sums(zip: &[u8], zip_name: &str, key: &PrivateKey) -> (Vec<u8>, Vec<u8>) {
+        let hex = ym_model::dist::hex_lower(&Sha256::digest(zip));
+        let sums = ym_model::dist::sums_line(&hex, zip_name).into_bytes();
+        let sig = key.sign(SIG_NAMESPACE, HashAlg::Sha512, &sums).unwrap();
+        (sums, sig.to_pem(LineEnding::LF).unwrap().into_bytes())
+    }
+
+    #[test]
+    fn pinned_keys_parse_and_are_sk() {
+        for k in SIGNING_KEYS {
+            let key = PublicKey::from_openssh(k).unwrap();
+            assert_eq!(key.algorithm(), ssh_key::Algorithm::SkEd25519);
+        }
+    }
+
+    #[test]
+    fn signature_roundtrip_and_rejections() {
+        let key = soft_key(7);
+        let pin = key.public_key().to_openssh().unwrap();
+        let keys = [pin.as_str()];
+        let name = "YandexMusicPlugin-darwin-9.9.9.zip";
+        let (sums, sig_pem) = signed_sums(b"ZIPBYTES", name, &key);
+        let sig = SshSig::from_pem(&sig_pem).unwrap();
+
+        assert!(verify_sums_with(&keys, &sums, &sig).is_ok());
+
+        let mut tampered = sums.clone();
+        tampered[0] ^= 1;
+        assert!(verify_sums_with(&keys, &tampered, &sig).is_err());
+
+        let stranger = soft_key(8).public_key().to_openssh().unwrap();
+        assert!(verify_sums_with(&[stranger.as_str()], &sums, &sig).is_err());
+    }
+
+    #[test]
+    fn verify_release_accepts_valid_and_rejects_broken() {
+        let key = soft_key(7);
+        let pin = key.public_key().to_openssh().unwrap();
+        let keys = [pin.as_str()];
+        let name = "YandexMusicPlugin-darwin-9.9.9.zip";
+        let zip = b"ZIPBYTES";
+        let (sums, sig_pem) = signed_sums(zip, name, &key);
+
+        assert!(verify_release_with(&keys, name, zip, &sums, &sig_pem).is_ok());
+        assert!(verify_release_with(&keys, name, b"EVILZIP", &sums, &sig_pem).is_err());
+        assert!(verify_release_with(&keys, "YandexMusicPlugin-windows-9.9.9.zip", zip, &sums, &sig_pem).is_err());
+        assert!(verify_release_with(&keys, name, zip, &sums, b"not a pem").is_err());
+        assert!(verify_release_with(SIGNING_KEYS, name, zip, &sums, &sig_pem).is_err());
+    }
+
+    #[test]
+    fn sk_fixture_verifies_with_pinned_key() {
+        let sums = include_bytes!("../fixtures/SHA256SUMS.fixture");
+        let sig_pem = include_bytes!("../fixtures/SHA256SUMS.fixture.sig");
+        let sig = SshSig::from_pem(sig_pem).unwrap();
+
+        assert!(verify_sums_with(SIGNING_KEYS, sums, &sig).is_ok());
+
+        let mut tampered = sums.to_vec();
+        tampered[0] ^= 1;
+        assert!(verify_sums_with(SIGNING_KEYS, &tampered, &sig).is_err());
+
+        let stranger = soft_key(9).public_key().to_openssh().unwrap();
+        assert!(verify_sums_with(&[stranger.as_str()], sums, &sig).is_err());
+    }
+
+    fn spawn_mock(build: impl FnOnce(&str) -> Vec<(String, Vec<u8>)>) -> (String, Arc<Mutex<usize>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let routes = build(&base);
+        let hits = Arc::new(Mutex::new(0usize));
+        let counter = hits.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                *counter.lock().unwrap() += 1;
+                let mut buf = [0u8; 8192];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = req.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let resp = match routes.iter().find(|(p, _)| *p == path) {
+                    Some((_, body)) => {
+                        let mut r = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .into_bytes();
+                        r.extend_from_slice(body);
+                        r
+                    }
+                    None => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                };
+                let _ = s.write_all(&resp);
+            }
+        });
+        (base, hits)
+    }
+
+    fn mock_release_json(base: &str, assets: &[&str]) -> Vec<u8> {
+        let assets: Vec<_> = assets
+            .iter()
+            .map(|name| serde_json::json!({"name": name, "browser_download_url": format!("{base}/dl/{name}")}))
+            .collect();
+        serde_json::json!({"tag_name": "v9.9.9", "assets": assets}).to_string().into_bytes()
+    }
+
+    fn mock_zip_name() -> String {
+        ym_model::dist::release_zip_name(std::env::consts::OS, "9.9.9")
+    }
+
+    #[tokio::test]
+    async fn mock_release_without_sums_is_rejected() {
+        let zip_name = mock_zip_name();
+        let (base, _hits) = spawn_mock(|base| {
+            vec![
+                ("/repos/o/r/releases/latest".to_owned(), mock_release_json(base, &[&zip_name])),
+                (format!("/dl/{zip_name}"), b"ZIPBYTES".to_vec()),
+            ]
+        });
+
+        let err = check_and_apply_at(&base, "o", "r", "1.0.0").await.unwrap_err();
+        assert!(format!("{err:#}").contains("нет SHA256SUMS"), "ошибка должна называть отсутствующий ассет: {err:#}");
+    }
+
+    #[tokio::test]
+    async fn mock_release_with_foreign_signature_is_rejected() {
+        let zip_name = mock_zip_name();
+        let zip = b"ZIPBYTES".to_vec();
+        let (sums, sig_pem) = signed_sums(&zip, &zip_name, &soft_key(7));
+        let (base, hits) = spawn_mock(|base| {
+            vec![
+                (
+                    "/repos/o/r/releases/latest".to_owned(),
+                    mock_release_json(base, &[&zip_name, SUMS_NAME, SUMS_SIG_NAME]),
+                ),
+                (format!("/dl/{zip_name}"), zip),
+                (format!("/dl/{SUMS_NAME}"), sums),
+                (format!("/dl/{SUMS_SIG_NAME}"), sig_pem),
+            ]
+        });
+
+        let err = check_and_apply_at(&base, "o", "r", "1.0.0").await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("не соответствует ни одному доверенному ключу"),
+            "чужая подпись должна отклоняться: {err:#}"
+        );
+        assert_eq!(*hits.lock().unwrap(), 4, "latest + zip + SUMS + sig скачаны до вердикта");
+    }
+
+    #[tokio::test]
+    async fn mock_older_tag_short_circuits_before_downloads() {
+        let zip_name = mock_zip_name();
+        let (base, hits) = spawn_mock(|base| {
+            vec![("/repos/o/r/releases/latest".to_owned(), mock_release_json(base, &[&zip_name]))]
+        });
+
+        let out = check_and_apply_at(&base, "o", "r", "99.0.0").await.unwrap();
+        assert_eq!(out, None);
+        assert_eq!(*hits.lock().unwrap(), 1, "при не-новом теге качается только latest");
+    }
+
+    #[tokio::test]
+    async fn mock_replayed_release_is_rejected_before_downloads() {
+        let replayed = ym_model::dist::release_zip_name(std::env::consts::OS, "2.4.0");
+        let (base, hits) = spawn_mock(|base| {
+            vec![
+                (
+                    "/repos/o/r/releases/latest".to_owned(),
+                    mock_release_json(base, &[&replayed, SUMS_NAME, SUMS_SIG_NAME]),
+                ),
+                (format!("/dl/{replayed}"), b"OLDZIP".to_vec()),
+            ]
+        });
+
+        let err = check_and_apply_at(&base, "o", "r", "1.0.0").await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("не соответствует тегу"),
+            "replay старого имени под новым тегом должен отклоняться: {err:#}"
+        );
+        assert_eq!(*hits.lock().unwrap(), 1, "replay отсекается до единого скачивания");
+    }
+
+    #[test]
+    fn sk_fixture_verifies_with_backup_key() {
+        let sums = include_bytes!("../fixtures/SHA256SUMS.fixture");
+        let sig = SshSig::from_pem(include_bytes!("../fixtures/SHA256SUMS.fixture.backup.sig")).unwrap();
+
+        assert!(verify_sums_with(SIGNING_KEYS, sums, &sig).is_ok());
+
+        let mut tampered = sums.to_vec();
+        tampered[0] ^= 1;
+        assert!(verify_sums_with(SIGNING_KEYS, &tampered, &sig).is_err());
+
+        assert!(verify_sums_with(&[SIGNING_KEYS[0]], sums, &sig).is_err(), "подпись именно резервным, не основным");
+    }
+
+    #[test]
+    fn missing_sums_assets_reject_update() {
+        let rel = Release {
+            tag: "v9.9.9".into(),
+            assets: vec![Asset { name: "YandexMusicPlugin-darwin-9.9.9.zip".into(), url: "z".into() }],
+            body: None,
+            html_url: None,
+        };
+        assert!(required_asset(&rel, SUMS_NAME).is_err());
+        assert!(required_asset(&rel, SUMS_SIG_NAME).is_err());
+        assert_eq!(required_asset(&rel, "YandexMusicPlugin-darwin-9.9.9.zip").unwrap().url, "z");
     }
 }

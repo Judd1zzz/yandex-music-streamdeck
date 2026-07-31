@@ -15,7 +15,7 @@
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases"><img src="https://img.shields.io/github/v/release/Judd1zzz/yandex-music-streamdeck?style=flat-square&color=blue" alt="Release"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases"><img src="https://img.shields.io/github/downloads/Judd1zzz/yandex-music-streamdeck/total?style=flat-square&color=green" alt="Downloads"></a>
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/stargazers"><img src="https://img.shields.io/github/stars/Judd1zzz/yandex-music-streamdeck?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Judd1zzz/yandex-music-streamdeck?style=flat-square" alt="License"></a>
+  <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-PolyForm--Strict-8B78E6?style=flat-square" alt="License"></a>
 </p>
 
 <p align="center">
@@ -81,13 +81,46 @@ Use the regular links without RUS. On first launch the software will offer to sw
 
 ---
 
+## Security & CDP
+
+> ⚠️ **In short: simply using plugins does not put your account at risk by itself. The risk appears only if a plugin's author is dishonest: access to the client makes it possible to steal your login data. Choose trusted software — and be especially careful with plugins that have auto-update.**
+
+**Why every plugin works through the debug port.** Yandex Music has no official API or SDK for its desktop client — requests for Stream Deck support have been around for almost seven years and remain unanswered. Until Yandex ships proper developer tooling, CDP (`--remote-debugging-port`) remains the only way to work with the client directly — plugin authors simply have no other option. Through years of inaction Yandex is effectively pushing users towards software built on debug access — including potentially dangerous software.
+
+**What the risk is.** CDP means full access to the client: Yandex Music is an Electron app (essentially a browser), and through the debug port software can not only press player buttons but also, for example, pull the cookies and tokens of your Yandex account. The port itself is local-only (127.0.0.1) and unreachable from outside — the whole question is which software on your computer you trust with that access.
+
+**Why auto-update is a special case.** A plugin with auto-update can deliver arbitrary code to your computer at any moment. Even if it is harmless today, one update is all a malicious author needs to steal accounts at scale. An unverified plugin with auto-update is the worst combination: you end up trusting not the code you installed, but the author — forever.
+
+**About copies of this plugin.** My plugin's source code is publicly visible, and it is precisely this project that others now regularly borrow ideas and functionality from: there are documented cases of specific features being lifted wholesale, and one repository is currently going through a DMCA takedown process. A copy may look familiar, but it goes through no external review — nobody except its author knows what its next update will bring.
+
+**Where I stand.** The source code of this plugin is open for reading and audit, and every release is built from this repository. The [Elgato Marketplace](https://marketplace.elgato.com/product/yandex-music-integration-43741c24-1784-4492-be32-c631d7c55829) build additionally has its code reviewed by the Elgato team before every version is published — you can't just walk onto the Marketplace, and that is one more layer of protection. That build has no self-updater at all: updates are delivered by the store itself. And the GitHub build's auto-update accepts only releases signed with my hardware key — here is how to verify that yourself.
+
+### Verifying a release
+
+Starting with v2.4.0 I personally sign every GitHub release: the `SHA256SUMS` file with the hashes of both archives is signed with my hardware key — a signature that cannot be produced without physically touching the key, even if my computer or GitHub account were compromised. The plugin's auto-update verifies this signature on its own and silently rejects anything not signed by me. To check manually (`SHA256SUMS` and `SHA256SUMS.sig` ship with every release next to the archives):
+
+```bash
+curl -sO https://raw.githubusercontent.com/Judd1zzz/yandex-music-streamdeck/main/allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I Judd1zzz -n file -s SHA256SUMS.sig < SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+The first check should print `Good "file" signature for Judd1zzz with ED25519-SK key`, the second — `OK` next to the archive you downloaded (on Windows use `sha256sum` from Git Bash instead of `shasum`). You'll need OpenSSH 8.2 or newer (the one built into Windows 10 won't do — use the one that ships with Git for Windows).
+
+---
+
 ## Features
 
 ### Basic Controls
 - **Play/Pause** — pause and resume playback
 - **Next/Previous** — switch tracks
 - **Like/Dislike** — influence "My Vibe" recommendations
+- **Shuffle** — toggle shuffled playback; the button always mirrors the real client state
+- **Repeat** — cycle the repeat mode (off → all → one) with a distinct icon per mode
 - **Mute** — mute audio without losing volume level
+- **Launch Yandex Music** — starts the client with the correct debug port; does nothing if it's already connected. Handy as the first step of a Multi Action
+
+> **Shuffle/Repeat on "My Vibe":** the home page of the client keeps these controls inside the player's context menu, so pressing the key briefly opens it there — that's the only way the client exposes them. On regular playlists and albums the plugin clicks the player-bar buttons directly.
 
 ### Volume
 - **Volume +/-** — adjust volume by 5% per click
@@ -102,7 +135,8 @@ Use the regular links without RUS. On first launch the software will offer to sw
 ### Track Info
 - **Cover + title + artist** — all on one button
 - **Scrolling text** — long titles automatically scroll
-- **Copy to clipboard** — click the cover button to copy "Artist - Track" to clipboard
+- **Press action** — clicking the button toggles play/pause (default), copies "Artist - Track" to clipboard or does nothing — configurable
+- **Timecodes on the cover** — optional elapsed / total time overlay on top of the cover art
 - **Progress bar** — shows track progress: elapsed time, duration or a bar — several styles to choose from
 
 ### Discord Rich Presence
@@ -119,6 +153,7 @@ Use the regular links without RUS. On first launch the software will offer to sw
 
 ### Auto-update (beta)
 - **Update check on startup** — new versions are pulled from GitHub automatically
+- **Every update is signature-checked** — the plugin only accepts releases signed with my hardware key ([how it works](#verifying-a-release))
 - The feature is new and hasn't been battle-tested yet. If an update doesn't come through — just download the latest release manually, like before: manual installation always works
 - Updates are downloaded and written by the plugin itself, so the one-time macOS `xattr` step from the install guide never needs repeating
 
@@ -178,7 +213,7 @@ The plugin is available in the official StreamDock Store — no archives, no Ter
   <a href="https://github.com/Judd1zzz/yandex-music-streamdeck/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
 </p>
 
-Get the latest release from [Releases](https://github.com/Judd1zzz/yandex-music-streamdeck/releases) and unpack the archive.
+Get the latest release from [Releases](https://github.com/Judd1zzz/yandex-music-streamdeck/releases) and unpack the archive. Want to make sure the archive was built by me — a signed `SHA256SUMS` ships right next to it: [how to verify](#verifying-a-release).
 
 ---
 
@@ -221,6 +256,8 @@ In Finder press `Cmd + Shift + G` and paste:
 ### 3. Debug port — the plugin takes care of it
 
 To control the client, the plugin talks to it through a debug port (`--remote-debugging-port=9222`). Yandex Music is an Electron app under the hood (essentially a browser), and this flag opens a local port through which the plugin can "see" the application and control it. The port is only accessible from your own computer (127.0.0.1).
+
+The flip side of this access is a question of trust: see [Security & CDP](#security--cdp).
 
 Previously you had to create special shortcuts for this. **Not anymore — the plugin handles the port itself:**
 
@@ -313,7 +350,8 @@ Per button:
 |-----------|-------------|
 | **Control type** | Local (PC client) or Ynison (cloud, beta) |
 | **Button style** | Appearance |
-| **Display elements** | What to show: cover, title, artist |
+| **Display elements** | What to show: cover, title, artist, timecodes |
+| **Press action** | Track Info click: Play/Pause (default), copy track name or do nothing |
 | **Progress format** | Progress bar look: timestamps, bar, etc. |
 
 Global — set once, applies everywhere:
@@ -323,6 +361,7 @@ Global — set once, applies everywhere:
 | **Port** | Connection port to the client (default 9222) |
 | **Client autostart** | Plugin launches/restarts the client with the debug port itself (on by default) |
 | **Client path** | Only for non-standard installs; empty = auto-detection |
+| **Launch from any button** | Any plugin button may start the client (on by default); when off, only the Launch Yandex Music action and the dashboard button do |
 | **Discord** | Rich Presence toggle; your own `Application ID` is optional |
 | **Download** | Folder and format: Lossless (FLAC/M4A) or MP3 320 |
 | **Language** | Settings panel language: English (default) or Russian. On a Russian-language system the panel offers the switch by itself |
@@ -548,11 +587,17 @@ cd crates/ym-cdp && npm test  # JS contract tests for injected_api.js (node + js
 
 ## License
 
-MIT. Do whatever you want.
+Starting with v2.4.0 the source code is licensed under **PolyForm Strict 1.0.0** with a few additional permissions from me — see [LICENSE](LICENSE) for the exact terms. In plain words:
+
+- **You may**: read and audit the code, build it from source and modify it for your own personal use, and fork on GitHub to submit pull requests here.
+- **You may not**: reuse any part of this code in other projects, or distribute the code, builds, or derivative works — free or paid.
+
+Images and badges under `assets/` are not covered by the code license: all rights reserved, with one exception — the unmodified badge may be displayed as a link to this project. Third-party components remain under their own licenses — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Releases up to and including v2.3.0 were published under MIT and remain under it.
 
 ---
 
 ## Acknowledgments
 
-- **[Yandex-Music-Ajazz-Plugin](https://github.com/whxtelxs/Yandex-Music-Ajazz-Plugin)** — thanks for the idea of using `--remote-debugging-port` to connect to the client via CDP.
 - **[YandexMusicModPatcher](https://github.com/TheKing-OfTime/YandexMusicModPatcher)** — patch for Ynison support on desktop client.

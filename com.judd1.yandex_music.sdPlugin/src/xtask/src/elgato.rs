@@ -4,13 +4,13 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use crate::{is_runtime_only_icon, make_executable, plugin_dir, repo_root, run, rust_dir, MAC_TARGETS, PKG};
+use crate::{is_runtime_only_icon, make_executable, plugin_dir, repo_root, run, rust_dir, LEGAL_FILES, MAC_TARGETS, PKG};
 
 pub const ELGATO_UUID: &str = "com.judd1.yandex-music";
 pub const ELGATO_DIR_NAME: &str = "com.judd1.yandex-music.sdPlugin";
 const OVERLAY: &str = include_str!("../assets/elgato.json");
 const EXCLUDED_SUFFIXES: [&str; 2] = [".action.download", ".action.volume_knob"];
-const EXPECTED_ACTIONS: usize = 11;
+const EXPECTED_ACTIONS: usize = 14;
 
 pub fn run_task(sub: Option<&str>) -> Result<()> {
     match sub.unwrap_or("all") {
@@ -135,7 +135,7 @@ fn win_exe_cross_target() -> PathBuf {
     rust_dir().join("target").join("x86_64-pc-windows-gnu").join("release").join("ym-plugin.exe")
 }
 
-const MARKETPLACE_MARKER: &[u8] = b"__ymNoDownloadUi=true;";
+const MARKETPLACE_MARKER: &[u8] = ym_model::dist::MARKETPLACE_MARKER.as_bytes();
 
 pub fn binary_has_marketplace_marker(bytes: &[u8]) -> bool {
     bytes.windows(MARKETPLACE_MARKER.len()).any(|w| w == MARKETPLACE_MARKER)
@@ -238,6 +238,7 @@ pub fn stage() -> Result<PathBuf> {
         .context("запись elgato manifest.json")?;
 
     copy_tree(&plugin.join("static"), &staging.join("static"))?;
+    copy_legal_files(&repo_root(), &staging)?;
 
     build_mac_universal(&bin_dir)?;
 
@@ -247,6 +248,15 @@ pub fn stage() -> Result<PathBuf> {
 
     println!("xtask: elgato staging → {}", staging.display());
     Ok(staging)
+}
+
+fn copy_legal_files(from: &Path, staging: &Path) -> Result<()> {
+    for legal in LEGAL_FILES {
+        let src = from.join(legal);
+        std::fs::copy(&src, staging.join(legal))
+            .with_context(|| format!("копирование {} в elgato staging", src.display()))?;
+    }
+    Ok(())
 }
 
 fn npx_cli(args: &[&str]) -> Result<()> {
@@ -331,7 +341,19 @@ mod tests {
         let with_marker = [b"prefix ".as_slice(), MARKETPLACE_MARKER, b" suffix"].concat();
         assert!(binary_has_marketplace_marker(&with_marker));
         assert!(!binary_has_marketplace_marker(b"ordinary full-featured binary contents"));
-        assert!(!binary_has_marketplace_marker(b"__ymNoDownloadUi=false;"));
+        assert!(!binary_has_marketplace_marker(b"window.__YM_NODL_FLAG__=false;"));
+    }
+
+    #[test]
+    fn marketplace_marker_is_the_shared_constant_not_a_local_copy() {
+        // маркер ищется внутри собранного .exe: если он разойдётся с тем, что реально
+        // вшивает ym-cdp, сборка Elgato падает с «собран с полным набором фич»
+        assert_eq!(MARKETPLACE_MARKER, ym_model::dist::MARKETPLACE_MARKER.as_bytes());
+        assert!(
+            MARKETPLACE_MARKER.ends_with(b"=true;") && MARKETPLACE_MARKER.starts_with(b"window."),
+            "маркер должен быть исполняемым присваиванием, а не голым плейсхолдером — \
+             плейсхолдер присутствует в любой сборке и отличать варианты не может"
+        );
     }
 
     #[test]
@@ -350,6 +372,31 @@ mod tests {
         assert!(!tmp.join("static/.DS_Store").exists());
         assert!(!tmp.join("static/img/.DS_Store").exists());
         assert!(tmp.join("manifest.json").exists());
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn legal_files_land_in_staging_root() -> anyhow::Result<()> {
+        let tmp = std::env::temp_dir().join(format!("elgato_legal_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("repo");
+        let staging = tmp.join("staging");
+        std::fs::create_dir_all(&root)?;
+        std::fs::create_dir_all(&staging)?;
+        for legal in LEGAL_FILES {
+            std::fs::write(root.join(legal), b"legal text")?;
+        }
+
+        copy_legal_files(&root, &staging)?;
+
+        for legal in LEGAL_FILES {
+            assert_eq!(std::fs::read(staging.join(legal))?, b"legal text");
+        }
+
+        let empty = tmp.join("empty");
+        std::fs::create_dir_all(&empty)?;
+        assert!(copy_legal_files(&empty, &empty).is_err(), "без LICENSE staging обязан падать");
         std::fs::remove_dir_all(&tmp).ok();
         Ok(())
     }
@@ -400,6 +447,11 @@ mod tests {
         assert!(!uuids.iter().any(|u| u.ends_with(".download") || u.ends_with(".volume-knob")));
         assert!(uuids.contains(&"com.judd1.yandex-music.action.volume-display"));
         assert!(uuids.contains(&"com.judd1.yandex-music.action.playpause"));
+        assert!(uuids.contains(&"com.judd1.yandex-music.action.launch"));
+        assert!(uuids.contains(&"com.judd1.yandex-music.action.shuffle"));
+        assert!(uuids.contains(&"com.judd1.yandex-music.action.repeat"));
+        let repeat = actions.iter().find(|a| a["UUID"] == "com.judd1.yandex-music.action.repeat").unwrap();
+        assert_eq!(repeat["States"].as_array().unwrap().len(), 3);
     }
 
     #[test]

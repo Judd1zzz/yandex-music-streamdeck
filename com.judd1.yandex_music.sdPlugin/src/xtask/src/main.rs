@@ -7,22 +7,26 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 const PKG: &str = "ym-plugin";
 const PLUGIN_DIR_NAME: &str = "com.judd1.yandex_music.sdPlugin";
 const MAC_TARGETS: [&str; 2] = ["x86_64-apple-darwin", "aarch64-apple-darwin"];
+pub const LEGAL_FILES: [&str; 2] = ["LICENSE", "THIRD-PARTY-NOTICES.md"];
 
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref().unwrap_or("") {
         "dist" => dist(),
         "package" => package(std::env::args().nth(2).as_deref()),
         "store" => store(),
+        "sums" => sums(),
+        "verify-release" => verify_release_cmd(),
         "clean" => clean(),
         "elgato" => elgato::run_task(std::env::args().nth(2).as_deref()),
         other => {
-            eprintln!("xtask: неизвестная задача {other:?}. Доступно: dist, package [os], store, clean, elgato");
+            eprintln!("xtask: неизвестная задача {other:?}. Доступно: dist, package [os], store, sums, verify-release, clean, elgato");
             Ok(())
         }
     }
@@ -149,7 +153,7 @@ fn package(os_arg: Option<&str>) -> Result<()> {
     std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
     let zip_path = release.join(ym_model::dist::release_zip_name(&os, env!("CARGO_PKG_VERSION")));
 
-    let entries = write_release_zip(&zip_path, &plugin_dir(), &[bin])?;
+    let entries = write_release_zip(&zip_path, &plugin_dir(), &repo_root(), &[bin], build_timestamp())?;
     print_package_summary(&format!("{} — {os}", plugin_display_name(&plugin_dir())), &zip_path, &entries);
     println!("xtask: релиз → {}", zip_path.display());
     Ok(())
@@ -166,20 +170,93 @@ fn store() -> Result<()> {
     let release = repo_root().join("release");
     std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
     let out = release.join(PLUGIN_DIR_NAME);
-    let entries = write_release_zip(&out, &plugin, &["ym-plugin", "ym-plugin.exe"])?;
+    let entries = write_release_zip(&out, &plugin, &repo_root(), &["ym-plugin", "ym-plugin.exe"], build_timestamp())?;
     print_package_summary(&format!("{} — StreamDock Store", plugin_display_name(&plugin)), &out, &entries);
     println!("xtask: store-пакет (zip с обёрткой, оба бинаря) → {}", out.display());
     Ok(())
 }
 
-fn write_release_zip(zip_path: &Path, plugin: &Path, bins: &[&str]) -> Result<Vec<(String, u64)>> {
+fn stamp_from(epoch: Option<&str>) -> zip::DateTime {
+    let odt = epoch
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .and_then(|e| time::OffsetDateTime::from_unix_timestamp(e).ok())
+        .unwrap_or_else(|| {
+            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+        });
+    zip::DateTime::try_from(odt).unwrap_or_default()
+}
+
+fn build_timestamp() -> zip::DateTime {
+    stamp_from(std::env::var("SOURCE_DATE_EPOCH").ok().as_deref())
+}
+
+fn write_sums(release: &Path, version: &str) -> Result<PathBuf> {
+    let mut out = String::new();
+    for os in ["macos", "windows"] {
+        let name = ym_model::dist::release_zip_name(os, version);
+        let path = release.join(&name);
+        let data = std::fs::read(&path)
+            .with_context(|| format!("нет {}: соберите оба зипа (xtask package {os}) и повторите", path.display()))?;
+        out.push_str(&ym_model::dist::sums_line(&ym_model::dist::hex_lower(&Sha256::digest(&data)), &name));
+    }
+    let path = release.join("SHA256SUMS");
+    std::fs::write(&path, out).with_context(|| format!("запись {}", path.display()))?;
+    Ok(path)
+}
+
+fn sums() -> Result<()> {
+    let path = write_sums(&repo_root().join("release"), env!("CARGO_PKG_VERSION"))?;
+    println!("xtask: контрольные суммы → {}", path.display());
+    println!("xtask: подпись (PIN + касание):");
+    println!("       ssh-keygen -Y sign -f ~/.ssh/id_ed25519_sk_yubikey_cert_git -n file {}", path.display());
+    Ok(())
+}
+
+fn verify_release_in(release: &Path, version: &str) -> Result<()> {
+    let sums = std::fs::read(release.join("SHA256SUMS"))
+        .with_context(|| format!("нет {}: сначала xtask sums", release.join("SHA256SUMS").display()))?;
+    let sig = std::fs::read(release.join("SHA256SUMS.sig"))
+        .with_context(|| format!("нет {}: подпишите SHA256SUMS", release.join("SHA256SUMS.sig").display()))?;
+    for os in ["macos", "windows"] {
+        let name = ym_model::dist::release_zip_name(os, version);
+        let zip = std::fs::read(release.join(&name))
+            .with_context(|| format!("нет {}", release.join(&name).display()))?;
+        ym_update::verify_release(&name, &zip, &sums, &sig)
+            .with_context(|| format!("клиентская проверка {name} провалена"))?;
+        println!("verify: {name} OK (sha256 + подпись доверенным ключом)");
+    }
+    Ok(())
+}
+
+fn verify_release_cmd() -> Result<()> {
+    verify_release_in(&repo_root().join("release"), env!("CARGO_PKG_VERSION"))?;
+    println!("verify: релиз пройдёт клиентскую проверку апдейтера 2.4.0+");
+    Ok(())
+}
+
+fn write_release_zip(
+    zip_path: &Path,
+    plugin: &Path,
+    legal_dir: &Path,
+    bins: &[&str],
+    stamp: zip::DateTime,
+) -> Result<Vec<(String, u64)>> {
     let file = File::create(zip_path).with_context(|| format!("создание {}", zip_path.display()))?;
     let mut zw = ZipWriter::new(file);
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    zw.set_comment(format!(
+        "Yandex Music Stream Deck plugin v{} — https://github.com/Judd1zzz/yandex-music-streamdeck",
+        env!("CARGO_PKG_VERSION")
+    ));
+    let opts = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .last_modified_time(stamp);
     let exec_opts = opts.unix_permissions(0o755);
     let mut entries = Vec::new();
 
     add_file(&mut zw, &plugin.join("manifest.json"), &format!("{PLUGIN_DIR_NAME}/manifest.json"), opts, &mut entries)?;
+    for legal in LEGAL_FILES {
+        add_file(&mut zw, &legal_dir.join(legal), &format!("{PLUGIN_DIR_NAME}/{legal}"), opts, &mut entries)?;
+    }
     add_tree(&mut zw, &plugin.join("static"), &format!("{PLUGIN_DIR_NAME}/static"), opts, &mut entries)?;
 
     for bin in bins {
@@ -323,6 +400,12 @@ mod tests {
         assert_eq!(sweep_days(Some("x")), 7);
     }
 
+    fn fake_legal(dir: &Path) {
+        for legal in LEGAL_FILES {
+            std::fs::write(dir.join(legal), b"legal text").unwrap();
+        }
+    }
+
     #[test]
     fn release_zip_has_clean_layout_and_skips_dotfiles() -> Result<()> {
         let tmp = std::env::temp_dir().join(format!("xtask_pkg_test_{}", std::process::id()));
@@ -330,6 +413,7 @@ mod tests {
         let plugin = tmp.join("plugin");
         std::fs::create_dir_all(plugin.join("static").join("sub"))?;
         std::fs::create_dir_all(plugin.join("bin"))?;
+        fake_legal(&tmp);
         std::fs::write(plugin.join("manifest.json"), b"{}")?;
         std::fs::write(plugin.join("static").join("icon.png"), b"png")?;
         std::fs::write(plugin.join("static").join("sub").join("inspector.js"), b"js")?;
@@ -337,12 +421,22 @@ mod tests {
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
+        let stamp = stamp_from(Some("1720000000"));
+        write_release_zip(&zip_path, &plugin, &tmp, &["ym-plugin"], stamp)?;
 
         let mut archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
+        assert!(
+            std::str::from_utf8(archive.comment()).unwrap().contains(env!("CARGO_PKG_VERSION")),
+            "комментарий архива должен называть версию"
+        );
+        for i in 0..archive.len() {
+            assert_eq!(archive.by_index(i)?.last_modified(), Some(stamp), "метка времени у каждой записи");
+        }
         let names: HashSet<String> = archive.file_names().map(String::from).collect();
         let p = PLUGIN_DIR_NAME;
         assert!(names.contains(&format!("{p}/manifest.json")), "нет manifest");
+        assert!(names.contains(&format!("{p}/LICENSE")), "нет LICENSE в архиве");
+        assert!(names.contains(&format!("{p}/THIRD-PARTY-NOTICES.md")), "нет THIRD-PARTY-NOTICES.md в архиве");
         assert!(names.contains(&format!("{p}/static/icon.png")), "нет static/icon.png");
         assert!(names.contains(&format!("{p}/static/sub/inspector.js")), "нет вложенного static");
         assert!(names.contains(&format!("{p}/bin/ym-plugin")), "нет bin/ym-plugin");
@@ -379,9 +473,10 @@ mod tests {
         std::fs::create_dir_all(img.join("elgato"))?;
         std::fs::write(img.join("elgato").join("plugin-icon.png"), b"png")?;
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
+        fake_legal(&tmp);
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
+        write_release_zip(&zip_path, &plugin, &tmp, &["ym-plugin"], build_timestamp())?;
 
         let archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let names: HashSet<String> = archive.file_names().map(String::from).collect();
@@ -411,9 +506,10 @@ mod tests {
         std::fs::write(plugin.join("manifest.json"), b"{}")?;
         std::fs::write(plugin.join("static").join("icon.png"), b"png")?;
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"binary")?;
+        fake_legal(&tmp);
 
         let zip_path = tmp.join("out.zip");
-        write_release_zip(&zip_path, &plugin, &["ym-plugin"])?;
+        write_release_zip(&zip_path, &plugin, &tmp, &["ym-plugin"], build_timestamp())?;
 
         let mut archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let mut ordered = Vec::new();
@@ -443,9 +539,10 @@ mod tests {
         std::fs::write(plugin.join("static").join(".DS_Store"), b"junk")?;
         std::fs::write(plugin.join("bin").join("ym-plugin"), b"mac")?;
         std::fs::write(plugin.join("bin").join("ym-plugin.exe"), b"win")?;
+        fake_legal(&tmp);
 
         let zip_path = tmp.join("com.judd1.yandex_music.sdPlugin");
-        write_release_zip(&zip_path, &plugin, &["ym-plugin", "ym-plugin.exe"])?;
+        write_release_zip(&zip_path, &plugin, &tmp, &["ym-plugin", "ym-plugin.exe"], build_timestamp())?;
 
         let archive = zip::ZipArchive::new(File::open(&zip_path)?)?;
         let names: HashSet<String> = archive.file_names().map(String::from).collect();
@@ -455,6 +552,58 @@ mod tests {
         assert!(names.contains(&format!("{p}/bin/ym-plugin.exe")));
         assert!(names.iter().all(|n| n.starts_with(&format!("{p}/"))), "все записи внутри папки-обёртки");
         assert!(!names.iter().any(|n| n.contains("DS_Store")));
+
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn verify_release_in_names_missing_files() -> Result<()> {
+        let tmp = std::env::temp_dir().join(format!("xtask_verify_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp)?;
+
+        let err = verify_release_in(&tmp, "9.9.9").unwrap_err();
+        assert!(format!("{err:#}").contains("SHA256SUMS"), "должен называть отсутствующий файл: {err:#}");
+
+        std::fs::write(tmp.join("SHA256SUMS"), b"deadbeef  x.zip\n")?;
+        let err = verify_release_in(&tmp, "9.9.9").unwrap_err();
+        assert!(format!("{err:#}").contains("SHA256SUMS.sig"), "должен называть отсутствующую подпись: {err:#}");
+
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn stamp_from_epoch_and_fallbacks() {
+        let fixed = stamp_from(Some("1720000000"));
+        assert_eq!(
+            (fixed.year(), fixed.month(), fixed.day(), fixed.hour(), fixed.minute(), fixed.second()),
+            (2024, 7, 3, 9, 46, 40)
+        );
+        assert!(stamp_from(None).year() >= 2026, "без epoch — текущее время, не 1980");
+        assert!(stamp_from(Some("мусор")).year() >= 2026, "мусорный epoch игнорируется");
+    }
+
+    #[test]
+    fn write_sums_covers_both_zips_and_requires_them() -> Result<()> {
+        let tmp = std::env::temp_dir().join(format!("xtask_sums_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp)?;
+
+        std::fs::write(tmp.join("YandexMusicPlugin-darwin-9.9.9.zip"), b"mac")?;
+        assert!(write_sums(&tmp, "9.9.9").is_err(), "без windows-зипа суммы не пишутся");
+
+        std::fs::write(tmp.join("YandexMusicPlugin-windows-9.9.9.zip"), b"win")?;
+        let path = write_sums(&tmp, "9.9.9")?;
+        let sums = std::fs::read_to_string(&path)?;
+
+        for (os, data) in [("macos", b"mac".as_slice()), ("windows", b"win".as_slice())] {
+            let name = ym_model::dist::release_zip_name(os, "9.9.9");
+            let expected = ym_model::dist::hex_lower(&Sha256::digest(data));
+            assert_eq!(ym_model::dist::find_sum(&sums, &name), Some(expected.as_str()));
+        }
+        assert_eq!(sums.lines().count(), 2);
 
         std::fs::remove_dir_all(&tmp).ok();
         Ok(())

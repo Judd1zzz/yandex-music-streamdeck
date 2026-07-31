@@ -8,7 +8,14 @@
 <body>
     <div class="sdpi-wrapper">
         <div class="pi-hint pi-update-notice hidden" id="update_notice"></div>
-        <div class="pi-hint pi-lang-offer hidden" id="lang_offer"></div>
+
+        <button class="btn-premium pi-dashboard-btn" onclick="openDashboard()">
+            <svg class="pi-dashboard-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span data-i18n="btn_open_dashboard">Open settings dashboard</span>
+        </button>
 
         <div id="control_mode_settings">
              <div class="sdpi-item" type="group">
@@ -30,39 +37,6 @@
                         Controls the client on this computer
                     </div>
                     <button class="btn-secondary" id="btn_apply_all" onclick="applyModeToAll()" data-i18n="btn_apply_all">Apply to all</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="local_settings_group" class="hidden">
-            <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label" data-i18n="port_label">Port</div>
-                <input class="sdpi-item-value" id="local_port_input" type="text" inputmode="numeric" value="9222" placeholder="9222" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateLocalPort()">
-            </div>
-            <div class="sdpi-item pi-checkbox-item" type="checkbox">
-                <div class="sdpi-item-label" data-i18n="client_label">Client</div>
-                <div class="sdpi-item-value">
-                    <div class="sdpi-item-child">
-                        <input class="inp-cbx" id="chk_client_autofix" type="checkbox" onchange="updateClientAutofix()">
-                        <label class="cbx" for="chk_client_autofix">
-                            <span>
-                                <svg width="12px" height="10px" viewbox="0 0 12 10">
-                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
-                                </svg>
-                            </span>
-                            <span data-i18n="autofix_label">Launch/relaunch the client with the debug port</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-            <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label" data-i18n="client_path_label">Client path</div>
-                <input class="sdpi-item-value" id="client_path_input" type="text" placeholder="Empty — auto-detect" data-i18n-placeholder="ph_client_path" oninput="scheduleClientPathCheck()" onchange="updateClientPath()">
-            </div>
-            <div class="pi-hint pi-path-check hidden" id="client_path_check"></div>
-            <div class="sdpi-item">
-                                <div class="sdpi-item-value pi-hint" data-i18n="autofix_hint">
-                    The plugin finds the Yandex Music client on its own and relaunches it with the required flag when needed. Set the path only if the client is installed in a non-standard location.
                 </div>
             </div>
         </div>
@@ -105,6 +79,30 @@
                             </span>
                             <span data-i18n="show_artist_label">Artist name</span>
                         </label>
+                    </div>
+                     <div class="sdpi-item-child">
+                         <input class="inp-cbx" id="chk_show_timecodes" type="checkbox" onchange="updateCheckbox('chk_show_timecodes', 'show_timecodes')">
+                         <label class="cbx" for="chk_show_timecodes">
+                            <span>
+                                <svg width="12px" height="10px" viewbox="0 0 12 10">
+                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                                </svg>
+                            </span>
+                            <span data-i18n="show_timecodes_label">Timecodes (elapsed / total)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label" data-i18n="info_press_label">Press action</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="info_press_select">
+                        <div class="select-selected" id="info_press_selected" data-default-value="playpause">Play/Pause</div>
+                        <div class="select-items select-hide" id="info_press_items">
+                            <div data-value="playpause">Play/Pause</div>
+                            <div data-value="copy" data-i18n="opt_info_press_copy">Copy track name</div>
+                            <div data-value="none" data-i18n="opt_info_press_none">Do nothing</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -262,6 +260,36 @@
             </div>
         </div>
 
+        <div id="shuffle_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="shuffle_style_select">
+                        <div class="select-selected" id="shuffle_style_selected">version 1</div>
+                        <div class="select-items select-hide" id="shuffle_style_items">
+                            <div data-value="v1">version 1</div>
+                            <div data-value="v2">version 2</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="repeat_settings" class="hidden">
+            <div class="sdpi-item" type="select">
+                <div class="sdpi-item-label" data-i18n="btn_style_label">Button style</div>
+                <div class="sdpi-item-value">
+                    <div class="custom-select" id="repeat_style_select">
+                        <div class="select-selected" id="repeat_style_selected">version 1</div>
+                        <div class="select-items select-hide" id="repeat_style_items">
+                            <div data-value="v1">version 1</div>
+                            <div data-value="v2">version 2</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="knob_settings" class="hidden">
             <div class="sdpi-item" type="select">
                 <div class="sdpi-item-label" data-i18n="knob_press_label">Knob press</div>
@@ -281,80 +309,8 @@
             </div>
         </div>
 
-        <div id="token_settings_block" class="sdpi-item hidden pi-group-lg" type="group">
-            <div class="sdpi-item-label"><span data-i18n="account_label">Account</span> <span id="token_status_indicator" class="status-indicator">...</span></div>
-            <div class="sdpi-item-value">
-                <button class="btn-premium" onclick="openTokenPopup()" data-i18n="btn_update_token">Update token</button>
-                <div class="token-info" data-i18n="token_info">Click to refresh the authorization session</div>
-            </div>
-        </div>
-
-        <hr>
-
-        <div id="discord_settings_block" class="pi-group" type="group">
-            <div class="sdpi-item pi-checkbox-item" type="checkbox">
-                <div class="sdpi-item-label">Discord</div>
-                <div class="sdpi-item-value">
-                    <div class="sdpi-item-child">
-                        <input class="inp-cbx" id="chk_discord_rpc" type="checkbox" onchange="updateDiscordEnabled()">
-                        <label class="cbx" for="chk_discord_rpc">
-                            <span>
-                                <svg width="12px" height="10px" viewbox="0 0 12 10">
-                                    <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
-                                </svg>
-                            </span>
-                            <span data-i18n="discord_rpc_label">Rich Presence (current track in your profile)</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-            <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label">Application ID</div>
-                <input class="sdpi-item-value" id="discord_app_id_input" type="text" inputmode="numeric" placeholder="Empty — built-in application" data-i18n-placeholder="ph_discord_app" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onchange="updateDiscordAppId()">
-            </div>
-            <div class="sdpi-item">
-                                <div class="sdpi-item-value pi-hint" data-i18n="discord_hint">
-                    Leave empty to use the built-in application. A custom ID is only needed if you want a custom name/icon.
-                </div>
-            </div>
-        </div>
-
-        <div id="download_global_block" class="pi-group-md" type="group">
-            <div class="sdpi-item" type="input">
-                <div class="sdpi-item-label" data-i18n="download_dir_label">Download folder</div>
-                <input class="sdpi-item-value" id="download_path_input" type="text" placeholder="default: Music" data-i18n-placeholder="ph_download_path" onchange="updateDownloadPath()">
-            </div>
-            <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label" data-i18n="format_label">Format</div>
-                <div class="sdpi-item-value">
-                    <div class="custom-select" id="download_format_select">
-                        <div class="select-selected" id="download_format_selected">Lossless (FLAC/M4A)</div>
-                        <div class="select-items select-hide" id="download_format_items">
-                            <div data-value="lossless">Lossless (FLAC/M4A)</div>
-                            <div data-value="mp3">MP3 320</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="language_block" class="pi-group-md" type="group">
-            <div class="sdpi-item" type="select">
-                <div class="sdpi-item-label" data-i18n="lang_label">Language</div>
-                <div class="sdpi-item-value">
-                    <div class="custom-select" id="pi_language_select">
-                        <div class="select-selected" id="pi_language_selected" data-default-value="en">English</div>
-                        <div class="select-items select-hide" id="pi_language_items">
-                            <div data-value="en">English</div>
-                            <div data-value="ru">Русский</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <div class="sdpi-item">
-            <div class="info pi-info-note" data-i18n="settings_note">Settings are saved immediately</div>
+            <div class="info pi-info-note" data-i18n="settings_note">Global settings (connection, Discord, download, language, account) are in the dashboard.</div>
         </div>
     </div>
 

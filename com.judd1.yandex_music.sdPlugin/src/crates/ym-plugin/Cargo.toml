@@ -2,7 +2,7 @@
 name = "ym-plugin"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [[bin]]
 name = "ym-plugin"
@@ -33,3 +33,4 @@ ym-render.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+ym-model.workspace = true

@@ -33,6 +33,14 @@ pub fn update_notice_payload(version: &str) -> Value {
     serde_json::json!({ "event": "UpdateNotice", "version": version })
 }
 
+pub fn discord_status_payload(status: &str) -> Value {
+    serde_json::json!({ "event": "DiscordStatus", "status": status })
+}
+
+pub fn rival_notice_payload(level: &str) -> Value {
+    serde_json::json!({ "event": "RivalNotice", "level": level })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApplySettingsPayload {
     pub event: String,
@@ -78,6 +86,20 @@ mod tests {
     #[test]
     fn update_notice_payload_shape() {
         assert_eq!(update_notice_payload("2.1.3"), json!({"event":"UpdateNotice","version":"2.1.3"}));
+    }
+
+    #[test]
+    fn discord_status_payload_shape() {
+        assert_eq!(
+            discord_status_payload("connected"),
+            json!({"event":"DiscordStatus","status":"connected"})
+        );
+    }
+
+    #[test]
+    fn rival_notice_payload_shape() {
+        assert_eq!(rival_notice_payload("installed"), json!({"event":"RivalNotice","level":"installed"}));
+        assert_eq!(rival_notice_payload("active"), json!({"event":"RivalNotice","level":"active"}));
     }
 
     #[test]

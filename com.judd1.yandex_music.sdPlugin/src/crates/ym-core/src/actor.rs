@@ -33,6 +33,7 @@ pub struct ActorHandle {
     pub cmd_tx: mpsc::Sender<ActorMsg>,
     pub cancel: CancellationToken,
     pub control_mode: ControlMode,
+    pub uuid: String,
     pub task: JoinHandle<()>,
 }
 
@@ -47,6 +48,7 @@ pub fn spawn_actor(
     let (cmd_tx, cmd_rx) = mpsc::channel::<ActorMsg>(CMD_CHANNEL_CAP);
     let cancel = CancellationToken::new();
     let control_mode = settings.control_mode;
+    let handle_uuid = uuid.clone();
     let ctx = ActionCtx::new(
         context,
         uuid,
@@ -57,7 +59,7 @@ pub fn spawn_actor(
         cmd_tx.clone(),
     );
     let task = tokio::spawn(actor_loop(action, ctx, cmd_rx));
-    ActorHandle { cmd_tx, cancel, control_mode, task }
+    ActorHandle { cmd_tx, cancel, control_mode, uuid: handle_uuid, task }
 }
 
 async fn wait_deadline(deadline: Option<Instant>) {
@@ -118,7 +120,10 @@ async fn actor_loop(mut action: Box<dyn Action>, ctx: ActionCtx, mut cmd_rx: mps
 
             ev = state_rx.recv(), if !state_closed => match ev {
                 Ok(ev) => {
-                    let is_hint = matches!(ev, StateEvent::LaunchHint | StateEvent::UpdateHint);
+                    let is_hint = matches!(
+                        ev,
+                        StateEvent::LaunchHint | StateEvent::UpdateHint | StateEvent::DiscordHint | StateEvent::RivalHint
+                    );
                     if !is_hint && interests.contains(interest_of(ev.kind())) {
                         action.on_state(&ctx, &ev).await;
                     }

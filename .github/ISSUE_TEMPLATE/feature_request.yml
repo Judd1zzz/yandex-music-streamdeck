@@ -1,0 +1,46 @@
+name: 💡 Feature request / Предложение
+description: Suggest a new feature or improvement / Предложите новую функцию или улучшение
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! The more concrete it is, the better.
+        Спасибо за идею! Чем конкретнее — тем лучше.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type / Тип
+      options:
+        - "New feature / Новая функция"
+        - "Improve existing / Улучшение существующего"
+        - "UX / Interface — Интерфейс"
+        - "Settings / Настройки"
+        - "Documentation / Документация"
+        - "Other / Другое"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Проблема
+      description: What are you trying to do, and what gets in the way? / Что вы хотите сделать и что мешает?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution / Предлагаемое решение
+      description: What would you like to happen? / Как это должно работать?
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context / Дополнительно
+      description: Mockups, links, examples. / Макеты, ссылки, примеры.

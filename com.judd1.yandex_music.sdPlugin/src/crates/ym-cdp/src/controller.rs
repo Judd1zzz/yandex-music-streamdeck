@@ -18,7 +18,7 @@ use ym_model::time::epoch_secs;
 use ym_model::{ActionResult, MediaState, StateEvent};
 
 use crate::discovery;
-use crate::{LocalCommand, INJECTED_API_JS, JS_CONTROLLER_NAME};
+use crate::{JsHandles, LocalCommand};
 
 const TICK: Duration = Duration::from_secs(2);
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
@@ -86,6 +86,7 @@ pub struct CdpController {
     opt: StdMutex<Opt>,
     reconnect: Notify,
     download_tx: RwLock<Option<mpsc::Sender<String>>>,
+    js: JsHandles,
 }
 
 impl CdpController {
@@ -99,7 +100,12 @@ impl CdpController {
             opt: StdMutex::new(Opt::default()),
             reconnect: Notify::new(),
             download_tx: RwLock::new(None),
+            js: JsHandles::random(),
         })
+    }
+
+    fn ctrl_ref(&self) -> String {
+        self.js.ctrl_ref()
     }
 
     pub fn set_download_tx(&self, tx: mpsc::Sender<String>) {
@@ -120,17 +126,36 @@ impl CdpController {
         }
     }
 
+    async fn bind_notify(&self, rpc: &RpcHandle) {
+        let params = serde_json::json!({"name": self.js.notify});
+        if let Err(e) = rpc.call("Runtime.addBinding", params).await {
+            tracing::warn!("cdp: addBinding не удался: {e}");
+        }
+    }
+
     async fn ensure_injection(&self, rpc: &RpcHandle) -> Result<(), CdpError> {
-        let present = rpc.eval(&format!("!!({JS_CONTROLLER_NAME})")).await?;
-        if present.as_bool() != Some(true) {
-            rpc.eval(INJECTED_API_JS).await?;
+        let h = rpc.eval(&self.js.health_expr()).await?;
+        let flag = |k: &str| h.get(k).and_then(Value::as_bool).unwrap_or(false);
+
+        if !flag("bind") {
+            tracing::warn!("cdp: канал уведомлений отсутствует, переустанавливаю binding");
+            self.bind_notify(rpc).await;
+        }
+        if !flag("guard") {
+            rpc.eval(&self.js.guard_js()).await?;
+        }
+        if !flag("alive") {
+            rpc.eval(&self.js.injected_api()).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
+        } else if !flag("observing") {
+            tracing::warn!("cdp: наблюдение снято извне, поднимаю заново");
+            rpc.eval(&format!("{}.startObservation()", self.ctrl_ref())).await?;
         }
         Ok(())
     }
 
     async fn run_cmd(&self, cmd: LocalCommand) -> ActionResult {
-        self.run_js(&cmd.expr(), cmd.kind()).await
+        self.run_js(&cmd.expr(&self.ctrl_ref()), cmd.kind()).await
     }
 
     async fn run_js(&self, expr: &str, kind: &str) -> ActionResult {
@@ -186,6 +211,14 @@ impl CdpController {
                         events.push(StateEvent::Dislike(st.dislike.clone()));
                     }
                 }
+                "toggleShuffle" => {
+                    st.shuffle.on = !st.shuffle.on;
+                    events.push(StateEvent::Shuffle(st.shuffle.clone()));
+                }
+                "toggleRepeat" => {
+                    st.repeat.mode = (st.repeat.mode + 1) % 3;
+                    events.push(StateEvent::Repeat(st.repeat.clone()));
+                }
                 "changeVolume" => {
                     let mut changed = false;
                     if let Some(v) = r.volume {
@@ -226,6 +259,8 @@ impl CdpController {
                 StateEvent::Volume(st.volume.clone()),
                 StateEvent::Like(st.like.clone()),
                 StateEvent::Dislike(st.dislike.clone()),
+                StateEvent::Shuffle(st.shuffle.clone()),
+                StateEvent::Repeat(st.repeat.clone()),
             ]
         };
         for e in events {
@@ -274,6 +309,14 @@ impl CdpController {
                     st.dislike.is_disliked = d;
                     events.push(StateEvent::Dislike(st.dislike.clone()));
                 }
+                if let Some(sh) = s.get("shuffle").and_then(Value::as_bool) {
+                    st.shuffle.on = sh;
+                    events.push(StateEvent::Shuffle(st.shuffle.clone()));
+                }
+                if let Some(rm) = s.get("repeat_mode").and_then(Value::as_u64) {
+                    st.repeat.mode = (rm as u8).min(2);
+                    events.push(StateEvent::Repeat(st.repeat.clone()));
+                }
             }
             if let Some(pr) = payload.get("progress") {
                 let mut changed = false;
@@ -319,6 +362,12 @@ impl CdpController {
     fn in_window(&self, pick: impl Fn(&Opt) -> Option<Instant>) -> bool {
         pick(&self.opt.lock().unwrap()).is_some_and(|t| Instant::now() <= t)
     }
+
+    pub async fn probe_rival(&self) -> bool {
+        let handle = self.rpc.read().unwrap().clone();
+        let Some(rpc) = handle else { return false };
+        matches!(rpc.eval(&self.js.rival_expr()).await, Ok(Value::Bool(true)))
+    }
 }
 
 #[async_trait]
@@ -333,6 +382,9 @@ impl MediaController for CdpController {
         if self.port.swap(port, Ordering::AcqRel) != port {
             self.reconnect.notify_one();
         }
+    }
+    fn active_port(&self) -> Option<u16> {
+        self.connected.load(Ordering::Acquire).then(|| self.port.load(Ordering::Acquire))
     }
     async fn oauth_token(&self) -> Option<String> {
         let handle = self.rpc.read().unwrap().clone();
@@ -357,6 +409,12 @@ impl MediaController for CdpController {
     }
     async fn toggle_dislike(&self) -> ActionResult {
         self.run_cmd(LocalCommand::ToggleDislike).await
+    }
+    async fn toggle_shuffle(&self) -> ActionResult {
+        self.run_cmd(LocalCommand::ToggleShuffle).await
+    }
+    async fn toggle_repeat(&self) -> ActionResult {
+        self.run_cmd(LocalCommand::ToggleRepeat).await
     }
     async fn change_volume(&self, action: VolumeAction) -> ActionResult {
         self.run_cmd(LocalCommand::ChangeVolume(action)).await
@@ -423,17 +481,21 @@ async fn reader_loop(mut read: SplitStream<Ws>, pending: Pending, ctrl: Arc<CdpC
 
 fn handle_binding(v: &Value, ctrl: &CdpController) {
     let params = v.get("params");
-    if params.and_then(|p| p.get("name")).and_then(Value::as_str) != Some("sdNotify") {
+    if params.and_then(|p| p.get("name")).and_then(Value::as_str) != Some(ctrl.js.notify.as_str()) {
         return;
     }
     let payload_str = params.and_then(|p| p.get("payload")).and_then(Value::as_str).unwrap_or("{}");
     let data = match serde_json::from_str::<Value>(payload_str) {
         Ok(d) => d,
         Err(e) => {
-            tracing::debug!("cdp: битый payload sdNotify: {e}");
+            tracing::debug!("cdp: битый payload уведомления: {e}");
             return;
         }
     };
+    if data.get("n").and_then(Value::as_str) != Some(ctrl.js.nonce.as_str()) {
+        tracing::warn!("cdp: отброшено сообщение без валидного nonce (чужая инъекция в канал)");
+        return;
+    }
     let typ = data.get("type").and_then(Value::as_str).unwrap_or("");
     let payload = data.get("payload").cloned().unwrap_or(Value::Null);
     match typ {
@@ -494,14 +556,22 @@ async fn connection_loop(ctrl: Arc<CdpController>, shutdown: CancellationToken) 
         if let Err(e) = handle.call("Runtime.enable", serde_json::json!({})).await {
             tracing::warn!("cdp: Runtime.enable не удался: {e}");
         }
-        if let Err(e) = handle.call("Runtime.addBinding", serde_json::json!({"name": "sdNotify"})).await {
-            tracing::warn!("cdp: addBinding(sdNotify) не удался: {e}");
+        ctrl.bind_notify(&handle).await;
+        let guard_js = ctrl.js.guard_js();
+        if let Err(e) = handle
+            .call("Page.addScriptToEvaluateOnNewDocument", serde_json::json!({"source": guard_js}))
+            .await
+        {
+            tracing::warn!("cdp: установка ajazz-guard на новые документы не удалась: {e}");
+        }
+        if let Err(e) = handle.eval(&guard_js).await {
+            tracing::warn!("cdp: инъекция ajazz-guard не удалась: {e}");
         }
         if let Err(e) = ctrl.ensure_injection(&handle).await {
             tracing::warn!("cdp: первичная инъекция не удалась: {e}");
         }
-        let _ = handle.eval(&format!("{JS_CONTROLLER_NAME}.stopObservation()")).await;
-        let _ = handle.eval(&format!("{JS_CONTROLLER_NAME}.startObservation()")).await;
+        let _ = handle.eval(&format!("{}.stopObservation()", ctrl.ctrl_ref())).await;
+        let _ = handle.eval(&format!("{}.startObservation()", ctrl.ctrl_ref())).await;
 
         let mut cancelled = false;
         loop {
@@ -513,6 +583,7 @@ async fn connection_loop(ctrl: Arc<CdpController>, shutdown: CancellationToken) 
                 _ = &mut reader => break,
                 _ = ctrl.reconnect.notified() => break,
                 _ = tokio::time::sleep(TICK) => {
+                    let _ = handle.eval(&guard_js).await;
                     let _ = ctrl.ensure_injection(&handle).await;
                 }
             }
@@ -538,7 +609,7 @@ mod tests {
     fn full_state_json() -> Value {
         serde_json::json!({
             "track": {"id": "777", "title": "Mock Track", "artist": "Mock Artist", "cover": "https://x/400x400"},
-            "state": {"playing": false, "liked": false, "disliked": false},
+            "state": {"playing": false, "liked": false, "disliked": false, "shuffle": true, "repeat_mode": 1},
             "progress": {"now_sec": 10.0, "total_sec": 200.0, "ratio": 0.05},
             "volume": {"current": 40.0, "is_muted": false}
         })
@@ -550,12 +621,23 @@ mod tests {
     fn ok_reply(id: u64) -> String {
         serde_json::json!({"id": id, "result": {}}).to_string()
     }
-    fn binding_frame(typ: &str, payload: Value) -> String {
-        let inner = serde_json::json!({"type": typ, "payload": payload}).to_string();
-        serde_json::json!({"method": "Runtime.bindingCalled", "params": {"name": "sdNotify", "payload": inner}}).to_string()
+    fn binding_frame(js: &JsHandles, typ: &str, payload: Value) -> String {
+        let inner = serde_json::json!({"n": js.nonce, "type": typ, "payload": payload}).to_string();
+        serde_json::json!({"method": "Runtime.bindingCalled", "params": {"name": js.notify, "payload": inner}})
+            .to_string()
     }
 
-    async fn start_mock() -> u16 {
+    type SharedHandles = Arc<std::sync::OnceLock<JsHandles>>;
+
+    #[tokio::test]
+    async fn active_port_none_when_disconnected() {
+        let (bus, _) = broadcast::channel(16);
+        let c = CdpController::new(9333, bus);
+        assert_eq!(c.active_port(), None);
+        assert_eq!(c.local_port(), 9333);
+    }
+
+    async fn start_mock(shared: SharedHandles) -> u16 {
         let ws_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_port = ws_listener.local_addr().unwrap().port();
         let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -590,7 +672,11 @@ mod tests {
                 let method = v["method"].as_str().unwrap_or("");
                 if method == "Runtime.evaluate" {
                     let expr = v["params"]["expression"].as_str().unwrap_or("");
-                    let value = if expr.contains("!!(") || expr.contains("startObservation") {
+                    let value = if expr.contains("alive:") {
+                        serde_json::json!({"alive": true, "observing": true, "bind": true, "guard": true})
+                    } else if expr.contains("rivalSeen") {
+                        Value::Bool(false)
+                    } else if expr.contains("startObservation") {
                         Value::Bool(true)
                     } else if expr.contains("getFullState") {
                         serde_json::json!({"success": true, "data": full_state_json()})
@@ -598,17 +684,20 @@ mod tests {
                         serde_json::json!({"success": true, "is_playing": true})
                     } else if expr.contains("toggleLike") {
                         serde_json::json!({"success": true, "new_state": true})
+                    } else if expr.contains("toggleShuffle") || expr.contains("toggleRepeat") {
+                        serde_json::json!({"success": true})
                     } else if expr.contains("changeVolume") {
                         serde_json::json!({"success": true, "volume": 55, "is_muted": false})
                     } else {
                         Value::Null
                     };
                     ws.send(Message::Text(eval_reply(id, value))).await.unwrap();
-                    if expr.contains("startObservation") {
-                        ws.send(Message::Text(binding_frame("FULL_STATE", full_state_json()))).await.unwrap();
-                        ws.send(Message::Text(binding_frame("DELTA", serde_json::json!({"state": {"liked": true}}))))
-                            .await
-                            .unwrap();
+                    if expr.contains("startObservation")
+                        && let Some(js) = shared.get()
+                    {
+                        ws.send(Message::Text(binding_frame(js, "FULL_STATE", full_state_json()))).await.unwrap();
+                        let delta = serde_json::json!({"state": {"liked": true}});
+                        ws.send(Message::Text(binding_frame(js, "DELTA", delta))).await.unwrap();
                     }
                 } else {
                     ws.send(Message::Text(ok_reply(id))).await.unwrap();
@@ -641,9 +730,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn connects_fetches_full_state_and_applies_pushed_delta() {
-        let http_port = start_mock().await;
+        let shared: SharedHandles = Arc::new(std::sync::OnceLock::new());
+        let http_port = start_mock(shared.clone()).await;
         let (bus, _rx) = broadcast::channel(64);
         let ctrl = CdpController::new(http_port, bus);
+        shared.set(ctrl.js.clone()).unwrap();
         let _task = ctrl.start(CancellationToken::new());
 
         wait_connected(&ctrl).await;
@@ -652,9 +743,57 @@ mod tests {
         assert_eq!(ctrl.snapshot().track.title, "Mock Track");
         assert_eq!(ctrl.snapshot().track.track_id, "777");
         assert_eq!(ctrl.snapshot().volume.current, 40.0, "громкость должна прийти из FULL_STATE");
+        assert!(ctrl.snapshot().shuffle.on, "shuffle должен прийти из FULL_STATE");
+        assert_eq!(ctrl.snapshot().repeat.mode, 1, "repeat_mode должен прийти из FULL_STATE");
 
         let ctrl_c = ctrl.clone();
         assert!(wait_until(move || ctrl_c.snapshot().like.is_liked).await, "DELTA лайка должна примениться");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn toggle_shuffle_and_repeat_apply_optimistic() {
+        let shared: SharedHandles = Arc::new(std::sync::OnceLock::new());
+        let http_port = start_mock(shared.clone()).await;
+        let (bus, _rx) = broadcast::channel(64);
+        let ctrl = CdpController::new(http_port, bus);
+        shared.set(ctrl.js.clone()).unwrap();
+        let _task = ctrl.start(CancellationToken::new());
+        wait_connected(&ctrl).await;
+        let ctrl_c = ctrl.clone();
+        assert!(wait_until(move || ctrl_c.snapshot().shuffle.on).await);
+
+        let r = ctrl.toggle_shuffle().await;
+        assert!(r.success);
+        assert!(!ctrl.snapshot().shuffle.on, "оптимистичный флип с true на false");
+
+        let before = ctrl.snapshot().repeat.mode;
+        let r = ctrl.toggle_repeat().await;
+        assert!(r.success);
+        assert_eq!(ctrl.snapshot().repeat.mode, (before + 1) % 3, "оптимистичный цикл режима");
+    }
+
+    #[test]
+    fn shuffle_repeat_delta_applies_without_suppression() {
+        let (bus, _rx) = broadcast::channel(64);
+        let ctrl = CdpController::new(9222, bus);
+        ctrl.apply_optimistic("toggleShuffle", &ActionResult { success: true, ..Default::default() });
+        ctrl.apply_optimistic("toggleRepeat", &ActionResult { success: true, ..Default::default() });
+        assert!(ctrl.snapshot().shuffle.on);
+        assert_eq!(ctrl.snapshot().repeat.mode, 1);
+        let mut sub = ctrl.bus.subscribe();
+        ctrl.apply_delta(&serde_json::json!({"state": {"shuffle": false, "repeat_mode": 2}}));
+        assert!(!ctrl.snapshot().shuffle.on);
+        assert_eq!(ctrl.snapshot().repeat.mode, 2);
+        assert_eq!(sub.try_recv().unwrap(), StateEvent::Shuffle(ym_model::ShuffleData { on: false }));
+        assert_eq!(sub.try_recv().unwrap(), StateEvent::Repeat(ym_model::RepeatData { mode: 2 }));
+    }
+
+    #[test]
+    fn repeat_delta_clamps_unknown_mode() {
+        let (bus, _rx) = broadcast::channel(64);
+        let ctrl = CdpController::new(9222, bus);
+        ctrl.apply_delta(&serde_json::json!({"state": {"repeat_mode": 9}}));
+        assert_eq!(ctrl.snapshot().repeat.mode, 2);
     }
 
     #[tokio::test]
@@ -664,26 +803,67 @@ mod tests {
         let (tx, mut dl_rx) = mpsc::channel(8);
         ctrl.set_download_tx(tx);
 
-        let msg = serde_json::json!({
-            "method": "Runtime.bindingCalled",
-            "params": { "name": "sdNotify", "payload": "{\"type\":\"DOWNLOAD\",\"payload\":{\"track_id\":\"12345\"}}" }
-        });
-        handle_binding(&msg, &ctrl);
+        let dl = |id: &str| serde_json::json!({"track_id": id});
+        handle_binding(&frame(&ctrl.js, "DOWNLOAD", dl("12345")), &ctrl);
         assert_eq!(dl_rx.try_recv().unwrap(), "12345");
 
-        let empty = serde_json::json!({
-            "method": "Runtime.bindingCalled",
-            "params": { "name": "sdNotify", "payload": "{\"type\":\"DOWNLOAD\",\"payload\":{\"track_id\":\"\"}}" }
+        handle_binding(&frame(&ctrl.js, "DOWNLOAD", dl("")), &ctrl);
+        assert!(dl_rx.try_recv().is_err(), "пустой track_id не должен уходить в канал");
+    }
+
+    fn frame(js: &JsHandles, typ: &str, payload: Value) -> Value {
+        serde_json::from_str(&binding_frame(js, typ, payload)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn binding_rejects_foreign_injection_without_nonce() {
+        let (bus, mut rx) = broadcast::channel(8);
+        let ctrl = CdpController::new(0, bus);
+        let (tx, mut dl_rx) = mpsc::channel(8);
+        ctrl.set_download_tx(tx);
+
+        let forged = |body: Value| {
+            serde_json::json!({
+                "method": "Runtime.bindingCalled",
+                "params": { "name": ctrl.js.notify, "payload": body.to_string() }
+            })
+        };
+
+        let no_nonce = serde_json::json!({"type": "DOWNLOAD", "payload": {"track_id": "evil"}});
+        handle_binding(&forged(no_nonce), &ctrl);
+        assert!(dl_rx.try_recv().is_err(), "сообщение без nonce должно отбрасываться");
+
+        let bad_nonce = serde_json::json!({
+            "n": "deadbeefdeadbeef", "type": "DOWNLOAD", "payload": {"track_id": "evil"}
         });
-        handle_binding(&empty, &ctrl);
-        assert!(dl_rx.try_recv().is_err());
+        handle_binding(&forged(bad_nonce), &ctrl);
+        assert!(dl_rx.try_recv().is_err(), "сообщение с чужим nonce должно отбрасываться");
+
+        let fake_state = serde_json::json!({
+            "n": "deadbeefdeadbeef", "type": "FULL_STATE", "payload": {"track": {"title": "Fake"}}
+        });
+        handle_binding(&forged(fake_state), &ctrl);
+        assert_ne!(ctrl.snapshot().track.title, "Fake", "чужой FULL_STATE не должен применяться");
+        assert!(rx.try_recv().is_err(), "чужое сообщение не должно порождать события");
+
+        let wrong_channel = serde_json::json!({
+            "method": "Runtime.bindingCalled",
+            "params": { "name": "sdNotify", "payload": binding_frame(&ctrl.js, "DOWNLOAD", serde_json::json!({"track_id": "evil"})) }
+        });
+        handle_binding(&wrong_channel, &ctrl);
+        assert!(dl_rx.try_recv().is_err(), "сообщение по старому имени канала должно игнорироваться");
+
+        handle_binding(&frame(&ctrl.js, "DOWNLOAD", serde_json::json!({"track_id": "ok"})), &ctrl);
+        assert_eq!(dl_rx.try_recv().unwrap(), "ok", "наше подписанное сообщение проходит");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn play_pause_command_returns_result_and_applies_optimistic() {
-        let http_port = start_mock().await;
+        let shared: SharedHandles = Arc::new(std::sync::OnceLock::new());
+        let http_port = start_mock(shared.clone()).await;
         let (bus, _rx) = broadcast::channel(64);
         let ctrl = CdpController::new(http_port, bus);
+        shared.set(ctrl.js.clone()).unwrap();
         let _task = ctrl.start(CancellationToken::new());
         wait_connected(&ctrl).await;
 

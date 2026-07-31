@@ -49,6 +49,14 @@ impl MediaController for MockController {
         self.calls.lock().unwrap().push("toggle_dislike");
         ActionResult { success: true, ..Default::default() }
     }
+    async fn toggle_shuffle(&self) -> ActionResult {
+        self.calls.lock().unwrap().push("toggle_shuffle");
+        ActionResult { success: true, ..Default::default() }
+    }
+    async fn toggle_repeat(&self) -> ActionResult {
+        self.calls.lock().unwrap().push("toggle_repeat");
+        ActionResult { success: true, ..Default::default() }
+    }
     async fn change_volume(&self, _a: VolumeAction) -> ActionResult {
         self.calls.lock().unwrap().push("change_volume");
         ActionResult { success: true, ..Default::default() }
@@ -123,6 +131,12 @@ impl MediaController for KnobMock {
     async fn toggle_dislike(&self) -> ActionResult {
         ActionResult::default()
     }
+    async fn toggle_shuffle(&self) -> ActionResult {
+        ActionResult::default()
+    }
+    async fn toggle_repeat(&self) -> ActionResult {
+        ActionResult::default()
+    }
     async fn change_volume(&self, a: VolumeAction) -> ActionResult {
         self.vol.lock().unwrap().push(a);
         ActionResult { success: true, ..Default::default() }
@@ -131,6 +145,10 @@ impl MediaController for KnobMock {
 
 pub(super) fn knob_settings(step: u8, press: &str) -> PluginSettings {
     PluginSettings { knob_step: step, knob_press: press.to_owned(), ..Default::default() }
+}
+
+pub(super) fn info_settings(press: &str, timecodes: bool) -> PluginSettings {
+    PluginSettings { info_press: press.to_owned(), show_timecodes: timecodes, ..Default::default() }
 }
 
 pub(super) fn backdated(secs: u64) -> std::time::Instant {

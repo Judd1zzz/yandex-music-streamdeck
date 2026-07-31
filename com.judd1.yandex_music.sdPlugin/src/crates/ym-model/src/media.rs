@@ -37,12 +37,24 @@ pub struct VolumeData {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
+pub struct ShuffleData {
+    pub on: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RepeatData {
+    pub mode: u8,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct MediaState {
     pub track: TrackData,
     pub playback: PlaybackData,
     pub like: LikeData,
     pub dislike: DislikeData,
     pub volume: VolumeData,
+    pub shuffle: ShuffleData,
+    pub repeat: RepeatData,
 }
 
 fn id_to_string(v: &Value) -> String {
@@ -73,6 +85,10 @@ struct RawState {
     liked: bool,
     #[serde(default)]
     disliked: bool,
+    #[serde(default)]
+    shuffle: bool,
+    #[serde(default)]
+    repeat_mode: u8,
 }
 
 #[derive(Deserialize, Default)]
@@ -125,6 +141,8 @@ impl MediaState {
             like: LikeData { is_liked: raw.state.liked },
             dislike: DislikeData { is_disliked: raw.state.disliked },
             volume: VolumeData { current: raw.volume.current, is_muted: raw.volume.is_muted },
+            shuffle: ShuffleData { on: raw.state.shuffle },
+            repeat: RepeatData { mode: raw.state.repeat_mode.min(2) },
         }
     }
 
@@ -166,6 +184,14 @@ impl MediaState {
             if let Some(d) = state.get("disliked").and_then(Value::as_bool) {
                 self.dislike.is_disliked = d;
                 events.push(StateEvent::Dislike(self.dislike.clone()));
+            }
+            if let Some(s) = state.get("shuffle").and_then(Value::as_bool) {
+                self.shuffle.on = s;
+                events.push(StateEvent::Shuffle(self.shuffle.clone()));
+            }
+            if let Some(r) = state.get("repeat_mode").and_then(Value::as_u64) {
+                self.repeat.mode = (r as u8).min(2);
+                events.push(StateEvent::Repeat(self.repeat.clone()));
             }
         }
 
@@ -215,7 +241,7 @@ mod tests {
     fn full() -> Value {
         json!({
             "track": {"id": "12345", "title": "Faded", "artist": "Madonna", "cover": "https://x/400x400"},
-            "state": {"playing": true, "liked": true, "disliked": false},
+            "state": {"playing": true, "liked": true, "disliked": false, "shuffle": true, "repeat_mode": 2},
             "progress": {"now_sec": 38.0, "total_sec": 179.0, "ratio": 0.21},
             "volume": {"current": 28.0, "is_muted": false}
         })
@@ -234,6 +260,8 @@ mod tests {
         assert!(s.like.is_liked);
         assert!(!s.dislike.is_disliked);
         assert_eq!(s.volume.current, 28.0);
+        assert!(s.shuffle.on);
+        assert_eq!(s.repeat.mode, 2);
     }
 
     #[test]
@@ -274,6 +302,30 @@ mod tests {
         assert_eq!(s.playback.total_sec, 179.0);
         assert_eq!(s.volume.current, 33.0);
         assert_eq!(evs.len(), 2);
+    }
+
+    #[test]
+    fn delta_shuffle_and_repeat_emit_targeted_events() {
+        let mut s = MediaState::from_full_value(&full());
+        let evs = s.apply_delta(&json!({"state": {"shuffle": false, "repeat_mode": 1}}));
+        assert!(!s.shuffle.on);
+        assert_eq!(s.repeat.mode, 1);
+        assert_eq!(
+            evs,
+            vec![
+                StateEvent::Shuffle(ShuffleData { on: false }),
+                StateEvent::Repeat(RepeatData { mode: 1 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn repeat_mode_clamps_unknown_values() {
+        let s = MediaState::from_full_value(&json!({"state": {"repeat_mode": 7}}));
+        assert_eq!(s.repeat.mode, 2);
+        let mut m = MediaState::default();
+        m.apply_delta(&json!({"state": {"repeat_mode": 9}}));
+        assert_eq!(m.repeat.mode, 2);
     }
 
     #[test]

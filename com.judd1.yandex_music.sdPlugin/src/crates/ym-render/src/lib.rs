@@ -116,6 +116,9 @@ mod tests {
             show_cover: false,
             show_title: true,
             show_artist: true,
+            show_timecodes: false,
+            progress_ms: 0.0,
+            duration_ms: 0.0,
         });
         assert!(info_uri.starts_with("data:image/png;base64,"));
         let prog = r.render_progress(ProgressInput { progress_ms: 1000.0, duration_ms: 2000.0, mode: "stacked".into() });

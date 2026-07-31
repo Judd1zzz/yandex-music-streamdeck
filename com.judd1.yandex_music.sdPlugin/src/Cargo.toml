@@ -17,9 +17,9 @@ members = [
 ]
 
 [workspace.package]
-version = "2.3.0"
+version = "2.4.0"
 edition = "2024"
-license = "MIT"
+license-file = "../../LICENSE"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -47,14 +47,17 @@ arboard = { version = "3", default-features = false }
 discord-rich-presence = "0.2"
 hmac = "0.12"
 sha2 = "0.10"
+ssh-key = { version = "0.6", default-features = false, features = ["ed25519", "std"] }
 aes = "0.8"
 ctr = "0.9"
 lofty = "0.22"
 symphonia = { version = "0.5.5", default-features = false, features = ["flac", "aac", "isomp4"] }
 mp3lame-encoder = "0.2.4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate", "time"] }
 semver = "1"
 self-replace = "1"
+time = { version = "0.3", features = ["local-offset"] }
+tempfile = "3"
 
 # Workspace-internal crates
 sd-protocol = { path = "crates/sd-protocol" }

@@ -11,7 +11,7 @@ var lastLocalStatus = null;
 var lastTokenStatus = null;
 var lastLocalReason = "";
 var lastUpdateVersion = "";
-var lastPathCheck = null;
+var lastDiscordStatus = null;
 
 var I18N = {
     en: {
@@ -29,6 +29,10 @@ var I18N = {
         show_cover_label: "Cover art",
         show_title_label: "Track title",
         show_artist_label: "Artist name",
+        show_timecodes_label: "Timecodes (elapsed / total)",
+        info_press_label: "Press action",
+        opt_info_press_copy: "Copy track name",
+        opt_info_press_none: "Do nothing",
         btn_style_label: "Button style",
         opt_style_v1: "original (with background)",
         progress_format_label: "Display format",
@@ -46,6 +50,7 @@ var I18N = {
         format_label: "Format",
         lang_label: "Language",
         settings_note: "Settings are saved immediately",
+        btn_open_dashboard: "Open settings dashboard",
         ynison_title: "⚠️ Ynison — a mode for enthusiasts",
         ynison_li1: "requires a separately running local API server (api_for_plugin) and a token;",
         ynison_li2: "Yandex blocks some commands for desktop — track switching may not work;",
@@ -53,7 +58,6 @@ var I18N = {
         btn_cancel: "Cancel",
         btn_ynison_confirm: "I understand, enable",
         ynison_link: "How to run api_for_plugin — guide on GitHub",
-        toast_token_saved: "Token saved",
         toast_applied_all: "Mode applied to all buttons",
         toast_no_connection: "No connection to the plugin",
         mode_desc_local: "Controls the client on this computer",
@@ -88,6 +92,10 @@ var I18N = {
         show_cover_label: "Обложка",
         show_title_label: "Название трека",
         show_artist_label: "Имя исполнителя",
+        show_timecodes_label: "Тайм-коды (прошло / всего)",
+        info_press_label: "Действие по нажатию",
+        opt_info_press_copy: "Копировать название трека",
+        opt_info_press_none: "Ничего не делать",
         btn_style_label: "Стиль кнопки",
         opt_style_v1: "original (с фоном)",
         progress_format_label: "Формат отображения",
@@ -105,6 +113,7 @@ var I18N = {
         format_label: "Формат",
         lang_label: "Язык",
         settings_note: "Настройки сохраняются сразу",
+        btn_open_dashboard: "Открыть панель настроек",
         ynison_title: "⚠️ Ynison — режим для энтузиастов",
         ynison_li1: "нужен отдельно запущенный локальный API-сервер (api_for_plugin) и токен;",
         ynison_li2: "Яндекс блокирует часть команд для ПК — переключение треков может не работать;",
@@ -112,7 +121,6 @@ var I18N = {
         btn_cancel: "Отмена",
         btn_ynison_confirm: "Я осознаю, включить",
         ynison_link: "Как запустить api_for_plugin — инструкция на GitHub",
-        toast_token_saved: "Токен сохранён",
         toast_applied_all: "Режим применён ко всем кнопкам",
         toast_no_connection: "Нет связи с плагином",
         mode_desc_local: "Управление клиентом на этом компьютере",
@@ -164,10 +172,8 @@ function resyncSelectLabels() {
 function rerenderDynamicTexts() {
     updateModeUI(settings.control_mode);
     if (lastLocalStatus) updateStatusIndicator("local_status_indicator", lastLocalStatus);
-    if (lastTokenStatus) updateStatusIndicator("token_status_indicator", lastTokenStatus);
     updateLocalReason(lastLocalReason);
     if (lastUpdateVersion) renderUpdateNotice(lastUpdateVersion);
-    if (lastPathCheck) renderClientPathCheck(lastPathCheck);
 }
 
 function applyLanguage(lang) {
@@ -183,45 +189,6 @@ function applyLanguage(lang) {
     rerenderDynamicTexts();
 }
 
-function systemPrefersRussian() {
-    var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
-    return langs.some(function(l) { return /^ru/i.test(String(l || "")); });
-}
-
-function hideLangOffer() {
-    var el = document.getElementById("lang_offer");
-    if (el) el.classList.add("hidden");
-}
-
-function chooseLanguage(lang) {
-    globalSettings.pi_language = lang;
-    saveGlobalSettings();
-    applyLanguage(lang);
-    syncGlobalSelect("pi_language", "pi_language_items", "pi_language_selected");
-    hideLangOffer();
-}
-
-function maybeOfferRussian() {
-    if (globalSettings.pi_language) { hideLangOffer(); return; }
-    if (!systemPrefersRussian()) return;
-    var el = document.getElementById("lang_offer");
-    if (!el) return;
-    el.textContent = "🌐 Панель настроек доступна на русском. Переключить? ";
-    var yes = document.createElement("span");
-    yes.className = "pi-lang-link";
-    yes.id = "lang_offer_yes";
-    yes.textContent = "Переключить на русский";
-    yes.addEventListener("click", function() { chooseLanguage("ru"); });
-    var no = document.createElement("span");
-    no.className = "pi-lang-link";
-    no.id = "lang_offer_no";
-    no.textContent = "Оставить English";
-    no.addEventListener("click", function() { chooseLanguage("en"); });
-    el.appendChild(yes);
-    el.appendChild(no);
-    el.classList.remove("hidden");
-}
-
 function showToast(text) {
     const el = document.getElementById("pi_toast");
     if (!el) return;
@@ -229,28 +196,6 @@ function showToast(text) {
     el.classList.remove("hidden");
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function() { el.classList.add("hidden"); }, 2500);
-}
-
-function openTokenPopup() {
-    const url = 'token.html?lang=' + piLang;
-    const name = 'YandexTokenPopup';
-    const specs = 'width=500,height=650,left=200,top=200';
-    window.open(url, name, specs);
-}
-
-window.updateToken = function(newToken) {
-    globalSettings.token = newToken;
-    saveGlobalSettings();
-    showToast(t("toast_token_saved"));
-};
-
-function updateLocalPort() {
-    const input = document.getElementById("local_port_input");
-    let port = parseInt(input.value, 10);
-    if (!port || port < 1 || port > 65535) port = 9222;
-    input.value = port;
-    globalSettings.local_port = port;
-    saveGlobalSettings();
 }
 
 function updateKnobStep() {
@@ -263,95 +208,10 @@ function updateKnobStep() {
     updateSettings();
 }
 
-function updateClientAutofix() {
-    globalSettings.client_autofix_enabled = document.getElementById("chk_client_autofix").checked;
-    saveGlobalSettings();
-}
-
-function updateClientPath() {
-    globalSettings.client_exe_path = document.getElementById("client_path_input").value;
-    saveGlobalSettings();
-    requestClientPathCheck();
-}
-
-var clientPathCheckTimer = null;
-
-function scheduleClientPathCheck() {
-    if (clientPathCheckTimer) clearTimeout(clientPathCheckTimer);
-    clientPathCheckTimer = setTimeout(requestClientPathCheck, 400);
-}
-
-function requestClientPathCheck() {
-    const input = document.getElementById("client_path_input");
-    const el = document.getElementById("client_path_check");
-    if (!input || !el) return;
-    const path = input.value.trim();
-    if (!path) {
-        el.textContent = "";
-        el.className = "pi-hint pi-path-check hidden";
-        return;
-    }
-    if (!websocket || websocket.readyState !== 1) return;
-    websocket.send(JSON.stringify({
-        event: "sendToPlugin",
-        context: uuid,
-        payload: {
-            event: "check_client_path",
-            path: path,
-            reply_action: actionInfo ? actionInfo.action : null,
-            reply_context: actionInfo ? actionInfo.context : null
-        }
-    }));
-}
-
-function renderClientPathCheck(payload) {
-    const el = document.getElementById("client_path_check");
-    if (!el) return;
-    lastPathCheck = payload;
-    const expected = payload.expected || "";
-    let text = "";
-    let tone = "warn";
-    if (payload.verdict === "ok") {
-        text = t("path_ok");
-        tone = "ok";
-    } else if (payload.verdict === "ok_dir") {
-        text = t("path_ok_dir", { file: payload.resolved || expected });
-        tone = "warn";
-    } else if (payload.verdict === "missing") {
-        text = t("path_missing");
-        tone = "err";
-    } else if (payload.verdict === "dir_without_client") {
-        text = t("path_no_client", { file: expected });
-        tone = "err";
-    }
-    if (!text) {
-        el.textContent = "";
-        el.className = "pi-hint pi-path-check hidden";
-        return;
-    }
-    el.textContent = text;
-    el.className = "pi-hint pi-path-check pi-path-" + tone;
-}
-
-function updateDiscordEnabled() {
-    globalSettings.discord_rpc_enabled = document.getElementById("chk_discord_rpc").checked;
-    saveGlobalSettings();
-}
-
-function updateDiscordAppId() {
-    globalSettings.discord_app_id = document.getElementById("discord_app_id_input").value;
-    saveGlobalSettings();
-}
-
 function updateCheckbox(id, settingKey) {
      const val = document.getElementById(id).checked;
      settings[settingKey] = val;
      updateSettings();
-}
-
-function updateDownloadPath() {
-    globalSettings.download_path = document.getElementById("download_path_input").value;
-    saveGlobalSettings();
 }
 
 function applyModeToAll() {
@@ -375,20 +235,8 @@ function applyModeToAll() {
 
 function updateModeUI(mode) {
     const desc = document.getElementById("mode_description");
-    const localGroup = document.getElementById("local_settings_group");
-    const tokenBlock = document.getElementById("token_settings_block");
-    
     const cleanMode = (mode || "local").toString().trim().toLowerCase();
-    
-    if (cleanMode === 'local') {
-        if(desc) desc.textContent = t("mode_desc_local");
-        if(localGroup) localGroup.classList.remove("hidden");
-        if(tokenBlock) tokenBlock.classList.add("hidden");
-    } else {
-        if(desc) desc.textContent = t("mode_desc_ynison");
-        if(localGroup) localGroup.classList.add("hidden");
-        if(tokenBlock) tokenBlock.classList.remove("hidden");
-    }
+    if (desc) desc.textContent = cleanMode === "local" ? t("mode_desc_local") : t("mode_desc_ynison");
 }
 
 function initSelect(selectedId, itemsId, write, callback, guard) {
@@ -469,29 +317,6 @@ function showYnisonModal(onConfirm) {
     });
 })();
 
-function initGlobalSelect(selectedId, itemsId, globalKey, callback) {
-    initSelect(selectedId, itemsId, function(val) {
-        globalSettings[globalKey] = val;
-        saveGlobalSettings();
-    }, callback);
-}
-
-function syncGlobalSelect(globalKey, itemsId, selectedId) {
-    const val = globalSettings[globalKey];
-    if (!val) return;
-    const items = document.getElementById(itemsId);
-    if (!items) return;
-    const options = items.querySelectorAll("div");
-    options.forEach(opt => {
-        if (opt.getAttribute("data-value") === val) {
-            const sel = document.getElementById(selectedId);
-            if (sel) sel.innerText = opt.innerText;
-            options.forEach(o => o.classList.remove("same-as-selected"));
-            opt.classList.add("same-as-selected");
-        }
-    });
-}
-
 function closeAllSelect(elmnt) {
     const allItems = document.querySelectorAll(".select-items");
     const allSelected = document.querySelectorAll(".select-selected");
@@ -535,20 +360,14 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         }, 2000);
         
         initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI, ynisonGuard);
-        initGlobalSelect("download_format_selected", "download_format_items", "download_format");
-        initGlobalSelect("pi_language_selected", "pi_language_items", "pi_language", function(val) {
-            applyLanguage(val);
-            hideLangOffer();
-        });
 
         const rawAction = String(actionInfo.action || '');
         const action = rawAction.replace(/_/g, '-');
-        if (rawAction.indexOf('.yandex-music.') !== -1) {
-            const dlBlock = document.getElementById('download_global_block');
-            if (dlBlock) dlBlock.classList.add('hidden');
-        }
         if (action === "com.judd1.yandex-music.action.info") {
             document.getElementById('info_settings').classList.remove('hidden');
+            initCustomSelect("info_press_selected", "info_press_items", "info_press");
+        } else if (action === "com.judd1.yandex-music.action.launch") {
+            document.getElementById('control_mode_settings').classList.add('hidden');
         } else if (action === "com.judd1.yandex-music.action.like") {
             document.getElementById('like_settings').classList.remove('hidden');
             initCustomSelect("like_style_selected", "like_style_items", "like_style");
@@ -583,6 +402,12 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         } else if (action === "com.judd1.yandex-music.action.download") {
             document.getElementById('download_settings').classList.remove('hidden');
             initCustomSelect("download_style_selected", "download_style_items", "download_style");
+        } else if (action === "com.judd1.yandex-music.action.shuffle") {
+            document.getElementById('shuffle_settings').classList.remove('hidden');
+            initCustomSelect("shuffle_style_selected", "shuffle_style_items", "shuffle_style");
+        } else if (action === "com.judd1.yandex-music.action.repeat") {
+            document.getElementById('repeat_settings').classList.remove('hidden');
+            initCustomSelect("repeat_style_selected", "repeat_style_items", "repeat_style");
         }
 
         if (actionInfo.payload.settings) {
@@ -604,39 +429,23 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         } else if (jsonObj.event === 'didReceiveGlobalSettings') {
             globalSettings = jsonObj.payload.settings || {};
             globalsReady = true;
-            if (globalSettings.local_port) {
-                document.getElementById("local_port_input").value = globalSettings.local_port;
-            }
-            const autofixChk = document.getElementById("chk_client_autofix");
-            if (autofixChk) autofixChk.checked = globalSettings.client_autofix_enabled !== false;
-            const clientPath = document.getElementById("client_path_input");
-            if (clientPath && typeof globalSettings.client_exe_path === "string") clientPath.value = globalSettings.client_exe_path;
-            if (clientPath && document.activeElement !== clientPath) scheduleClientPathCheck();
-            const discordChk = document.getElementById("chk_discord_rpc");
-            if (discordChk) discordChk.checked = globalSettings.discord_rpc_enabled === true;
-            const discordApp = document.getElementById("discord_app_id_input");
-            if (discordApp && globalSettings.discord_app_id) discordApp.value = globalSettings.discord_app_id;
-            const dlPath = document.getElementById("download_path_input");
-            if (dlPath && typeof globalSettings.download_path === "string") dlPath.value = globalSettings.download_path;
-            syncGlobalSelect("download_format", "download_format_items", "download_format_selected");
             applyLanguage(globalSettings.pi_language === "ru" ? "ru" : "en");
-            syncGlobalSelect("pi_language", "pi_language_items", "pi_language_selected");
-            maybeOfferRussian();
+            postToDashboard("globalSettings", globalSettings);
         } else if (jsonObj.event === 'sendToPropertyInspector') {
             var payload = jsonObj.payload;
             if (payload.event === "TokenStatus") {
                 lastTokenStatus = payload.status;
-                updateStatusIndicator("token_status_indicator", payload.status);
                 updateLocalReason("");
             } else if (payload.event === "LocalStatus") {
-                 lastLocalStatus = payload.status;
-                 updateStatusIndicator("local_status_indicator", payload.status);
-                 updateLocalReason(payload.status === "connected" ? "" : payload.reason);
-            } else if (payload.event === "ClientPathCheck") {
-                renderClientPathCheck(payload);
+                lastLocalStatus = payload.status;
+                updateStatusIndicator("local_status_indicator", payload.status);
+                updateLocalReason(payload.status === "connected" ? "" : payload.reason);
             } else if (payload.event === "UpdateNotice") {
                 renderUpdateNotice(payload.version);
+            } else if (payload.event === "DiscordStatus") {
+                lastDiscordStatus = payload.status;
             }
+            postToDashboard("event", payload);
         }
     };
 }
@@ -670,8 +479,7 @@ function localizeReason(reason) {
     const raw = (reason || "").toString();
     if (!raw) return "";
     if (I18N.en["reason_" + raw] != null) {
-        const portInput = document.getElementById("local_port_input");
-        const port = globalSettings.local_port || (portInput && portInput.value) || 9222;
+        const port = globalSettings.local_port || 9222;
         return t("reason_" + raw, { port: port });
     }
     return raw;
@@ -733,11 +541,15 @@ function syncUIRomSettings() {
         }
     }
     const syncCheck = (key, id) => {
-        const val = settings[key] !== false; 
+        const val = settings[key] !== false;
         const el = document.getElementById(id);
         if (el) el.checked = val;
     }
-    
+    const syncCheckOff = (key, id) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = settings[key] === true;
+    }
+
     syncSelect("like_style", "like_style_items", "like_style_selected");
     syncSelect("dislike_style", "dislike_style_items", "dislike_style_selected");
     syncSelect("next_style", "next_style_items", "next_style_selected");
@@ -748,7 +560,10 @@ function syncUIRomSettings() {
     syncSelect("mute_style", "mute_style_items", "mute_style_selected");
     syncSelect("volume_style", "volume_style_items", "volume_style_selected");
     syncSelect("download_style", "download_style_items", "download_style_selected");
+    syncSelect("shuffle_style", "shuffle_style_items", "shuffle_style_selected");
+    syncSelect("repeat_style", "repeat_style_items", "repeat_style_selected");
     syncSelect("knob_press", "knob_press_items", "knob_press_selected");
+    syncSelect("info_press", "info_press_items", "info_press_selected");
 
     const knobStep = document.getElementById("knob_step_input");
     if (knobStep && settings.knob_step !== undefined) knobStep.value = settings.knob_step;
@@ -756,6 +571,7 @@ function syncUIRomSettings() {
     syncCheck("show_cover", "chk_show_cover");
     syncCheck("show_title", "chk_show_title");
     syncCheck("show_artist", "chk_show_artist");
+    syncCheckOff("show_timecodes", "chk_show_timecodes");
 }
 
 function updateSettings() {
@@ -780,3 +596,77 @@ function saveGlobalSettings() {
         websocket.send(JSON.stringify(json));
     }
 }
+
+var dashboardWindow = null;
+
+function collectSnapshot() {
+    return {
+        lang: piLang,
+        action: actionInfo ? actionInfo.action : null,
+        globalSettings: globalSettings,
+        settings: settings,
+        localStatus: lastLocalStatus,
+        localReason: lastLocalReason,
+        tokenStatus: lastTokenStatus,
+        updateVersion: lastUpdateVersion,
+        pathCheck: null,
+        discord: lastDiscordStatus
+    };
+}
+
+function postToDashboard(type, payload) {
+    if (!dashboardWindow || dashboardWindow.closed) return;
+    try {
+        dashboardWindow.postMessage({ channel: "ym", type: type, payload: payload }, "*");
+    } catch (e) {}
+}
+
+window.ymBridge = {
+    ready: function() {
+        postToDashboard("snapshot", collectSnapshot());
+    },
+    getSnapshot: function() {
+        return collectSnapshot();
+    },
+    setGlobal: function(patch) {
+        if (!patch || typeof patch !== "object") return;
+        Object.keys(patch).forEach(function(k) { globalSettings[k] = patch[k]; });
+        saveGlobalSettings();
+        if (patch.pi_language && patch.pi_language !== piLang) {
+            applyLanguage(patch.pi_language);
+        }
+    },
+    sendToPlugin: function(payload) {
+        if (websocket && websocket.readyState === 1) {
+            var p = Object.assign({}, payload || {});
+            if (actionInfo) {
+                if (p.reply_action === undefined) p.reply_action = actionInfo.action;
+                if (p.reply_context === undefined) p.reply_context = actionInfo.context;
+            }
+            websocket.send(JSON.stringify({ event: "sendToPlugin", context: uuid, payload: p }));
+        }
+    },
+    openExternal: function(url) {
+        openExternal(url);
+    },
+    checkClientPath: function(path) {
+        if (websocket && websocket.readyState === 1) {
+            websocket.send(JSON.stringify({
+                event: "sendToPlugin",
+                context: uuid,
+                payload: {
+                    event: "check_client_path",
+                    path: path,
+                    reply_action: actionInfo ? actionInfo.action : null,
+                    reply_context: actionInfo ? actionInfo.context : null
+                }
+            }));
+        }
+    }
+};
+
+function openDashboard() {
+    var url = "dashboard/index.html?lang=" + piLang;
+    dashboardWindow = window.open(url, "YMDashboard", "width=920,height=640,left=160,top=120");
+}
+window.openDashboard = openDashboard;

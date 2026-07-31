@@ -34,6 +34,9 @@ fn d_knob_step() -> u8 {
 fn d_knob_press() -> String {
     "mute".to_owned()
 }
+fn d_info_press() -> String {
+    "playpause".to_owned()
+}
 
 fn de_knob_step<'de, D>(d: D) -> Result<u8, D::Error>
 where
@@ -72,6 +75,10 @@ pub struct PluginSettings {
     pub mute_style: String,
     #[serde(default = "d_style")]
     pub download_style: String,
+    #[serde(default = "d_style")]
+    pub shuffle_style: String,
+    #[serde(default = "d_style")]
+    pub repeat_style: String,
     #[serde(default = "d_knob_step", deserialize_with = "de_knob_step")]
     pub knob_step: u8,
     #[serde(default = "d_knob_press")]
@@ -84,6 +91,10 @@ pub struct PluginSettings {
     pub show_title: bool,
     #[serde(default = "d_true")]
     pub show_artist: bool,
+    #[serde(default = "d_info_press")]
+    pub info_press: String,
+    #[serde(default)]
+    pub show_timecodes: bool,
 }
 
 impl Default for PluginSettings {
@@ -141,6 +152,8 @@ pub struct GlobalSettings {
     pub local_port: Option<u16>,
     #[serde(default = "d_true")]
     pub client_autofix_enabled: bool,
+    #[serde(default = "d_true")]
+    pub launch_from_any_button: bool,
     #[serde(default)]
     pub client_exe_path: Option<String>,
     #[serde(default)]
@@ -151,6 +164,8 @@ pub struct GlobalSettings {
     pub download_path: String,
     #[serde(default = "d_download_format")]
     pub download_format: String,
+    #[serde(default = "d_true")]
+    pub debug_mode: bool,
 }
 
 impl Default for GlobalSettings {
@@ -200,6 +215,18 @@ mod tests {
     }
 
     #[test]
+    fn shuffle_repeat_styles_default_and_roundtrip() {
+        let s = PluginSettings::default();
+        assert_eq!(s.shuffle_style, "v1");
+        assert_eq!(s.repeat_style, "v1");
+        let parsed = PluginSettings::from_value(&json!({"shuffle_style": "v2", "repeat_style": "v2"}));
+        assert_eq!(parsed.shuffle_style, "v2");
+        assert_eq!(parsed.repeat_style, "v2");
+        let back = PluginSettings::from_value(&parsed.to_value());
+        assert_eq!(back, parsed);
+    }
+
+    #[test]
     fn partial_settings_fill_defaults() {
         let s = PluginSettings::from_value(&json!({"control_mode": "ynison", "next_style": "v3"}));
         assert_eq!(s.control_mode, ControlMode::Ynison);
@@ -245,9 +272,11 @@ mod tests {
         let def = GlobalSettings::default();
         assert_eq!(def.download_path, "");
         assert_eq!(def.download_format, "lossless");
-        let g = GlobalSettings::from_value(&json!({"download_path": "/Music", "download_format": "mp3"}));
+        assert!(def.debug_mode);
+        let g = GlobalSettings::from_value(&json!({"download_path": "/Music", "download_format": "mp3", "debug_mode": false}));
         assert_eq!(g.download_path, "/Music");
         assert_eq!(g.download_format, "mp3");
+        assert!(!g.debug_mode);
     }
 
     #[test]
@@ -284,6 +313,38 @@ mod tests {
         assert_eq!(s.knob_press, "playpause");
         let back = PluginSettings::from_value(&s.to_value());
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn info_press_defaults_and_roundtrip() {
+        let s = PluginSettings::default();
+        assert_eq!(s.info_press, "playpause");
+        let copy = PluginSettings::from_value(&json!({"info_press": "copy"}));
+        assert_eq!(copy.info_press, "copy");
+        let back = PluginSettings::from_value(&copy.to_value());
+        assert_eq!(copy, back);
+    }
+
+    #[test]
+    fn show_timecodes_default_off_and_roundtrip() {
+        let s = PluginSettings::default();
+        assert!(!s.show_timecodes);
+        let on = PluginSettings::from_value(&json!({"show_timecodes": true}));
+        assert!(on.show_timecodes);
+        let back = PluginSettings::from_value(&on.to_value());
+        assert_eq!(on, back);
+    }
+
+    #[test]
+    fn launch_from_any_button_default_true_and_parse() {
+        let def = GlobalSettings::default();
+        assert!(def.launch_from_any_button);
+        let off = GlobalSettings::from_value(&json!({"launch_from_any_button": false, "token": "T"}));
+        assert!(!off.launch_from_any_button);
+        assert_eq!(off.token.as_deref(), Some("T"));
+        let v = serde_json::to_value(&off).unwrap();
+        let back = GlobalSettings::from_value(&v);
+        assert_eq!(off, back);
     }
 
     #[test]

@@ -10,6 +10,10 @@ pub async fn run_download(shared: &Arc<Shared>, track_id: String) -> Result<Path
         shared.publish(StateEvent::Download { active: true });
     }
     let result = download_inner(shared, &track_id).await;
+    if let Ok(ref path) = result {
+        let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        shared.stats_record_download(bytes);
+    }
     if shared.download_end() {
         shared.publish(StateEvent::Download { active: false });
     }

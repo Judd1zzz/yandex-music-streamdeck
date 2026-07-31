@@ -90,6 +90,7 @@ impl Orchestrator {
             }
 
             Inbound::KeyDown(a) => {
+                self.record_action(a.context.as_deref());
                 self.kick_if_local_disconnected(a.context.as_deref());
                 self.forward_opt(a.context, ActorMsg::KeyDown).await
             }
@@ -99,6 +100,7 @@ impl Orchestrator {
                 self.forward_opt(a.context, ActorMsg::DialRotate(ticks)).await
             }
             Inbound::DialDown(a) => {
+                self.record_action(a.context.as_deref());
                 self.kick_if_local_disconnected(a.context.as_deref());
                 self.forward_opt(a.context, ActorMsg::DialDown).await
             }
@@ -134,6 +136,38 @@ impl Orchestrator {
                     == Some("check_client_path")
                 {
                     self.answer_client_path_check(&a).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("getUpdateInfo") {
+                    let payload = self.shared.update_info_payload();
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("checkUpdates") {
+                    self.spawn_update_check(&a);
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("getLogs") {
+                    let payload = self.shared.log_buffer_payload();
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("clearLogs") {
+                    self.shared.log_clear();
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("getStats") {
+                    let period = a.payload.get("period").and_then(serde_json::Value::as_str).unwrap_or("week");
+                    let payload = self.shared.stats_payload(period);
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("getEdition") {
+                    let payload = self.shared.edition_payload();
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("launchClient") {
+                    self.shared.launch_kick();
+                    let payload = sd_protocol::local_status_payload(sd_protocol::LocalStatus::Loading, None);
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("checkConnection") {
+                    self.reply_connection_status(&a).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("getHealth") {
+                    let payload = self.shared.health_payload();
+                    self.reply_to_pi(&a, payload).await;
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("openLogsFolder")
+                    && let Some(dir) = self.shared.log_dir()
+                {
+                    open_folder(&dir);
+                } else if a.payload.get("event").and_then(serde_json::Value::as_str) == Some("pickFolder") {
+                    self.spawn_pick_folder(&a);
                 }
             }
 
@@ -146,6 +180,7 @@ impl Orchestrator {
                 self.shared.set_discord_config(self.global.discord());
                 self.shared.set_launch_config(self.global.launch());
                 self.shared.set_download_config(self.global.download_path.clone(), self.global.download_format.clone());
+                self.shared.set_logs_enabled(self.global.debug_mode);
                 self.recalc_ynison();
             }
 
@@ -182,9 +217,21 @@ impl Orchestrator {
         self.shared.set_any_local(needs);
     }
 
+    fn record_action(&self, context: Option<&str>) {
+        if let Some(ctx) = context
+            && let Some(h) = self.actors.get(ctx)
+            && let Some(kind) = crate::registry::action_kind_for(&h.uuid)
+        {
+            self.shared.stats_record_action(kind);
+        }
+    }
+
     fn kick_if_local_disconnected(&self, context: Option<&str>) {
         if let Some(ctx) = context
-            && self.actors.get(ctx).is_some_and(|h| h.control_mode == ControlMode::Local)
+            && let Some(h) = self.actors.get(ctx)
+            && crate::registry::canonical_uuid(&h.uuid) != crate::registry::uuids::LAUNCH
+            && self.global.launch_from_any_button
+            && h.control_mode == ControlMode::Local
             && !self.shared.cdp.is_connected()
         {
             self.shared.launch_kick();
@@ -194,6 +241,84 @@ impl Orchestrator {
     async fn answer_client_path_check(&self, a: &sd_protocol::ActionEvt) {
         let raw = a.payload.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
         let Some(report) = self.shared.check_client_path(raw) else { return };
+        self.reply_to_pi(a, report.payload()).await;
+    }
+
+    async fn reply_connection_status(&self, a: &sd_protocol::ActionEvt) {
+        let status = if self.shared.cdp.is_connected() {
+            sd_protocol::LocalStatus::Connected
+        } else {
+            sd_protocol::LocalStatus::Disconnected
+        };
+        let reason = self.shared.launch_reason();
+        let mut payload = sd_protocol::local_status_payload(status, reason.as_deref());
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("port".to_owned(), serde_json::json!(self.shared.cdp.active_port()));
+        }
+        self.reply_to_pi(a, payload).await;
+    }
+
+    fn spawn_update_check(&self, a: &sd_protocol::ActionEvt) {
+        let shared = self.shared.clone();
+        let host = self.host.clone();
+        let action = a
+            .payload
+            .get("reply_action")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.action.clone());
+        let context = a
+            .payload
+            .get("reply_context")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.context.clone());
+        tokio::spawn(async move {
+            shared.run_update_check().await;
+            if let (Some(action), Some(context)) = (action, context) {
+                let _ = host
+                    .send(Outbound::SendToPropertyInspector {
+                        action,
+                        context,
+                        payload: shared.update_info_payload(),
+                    })
+                    .await;
+            }
+        });
+    }
+
+    fn spawn_pick_folder(&self, a: &sd_protocol::ActionEvt) {
+        let target = a.payload.get("target").and_then(serde_json::Value::as_str).unwrap_or("download");
+        let kind = if target == "client" {
+            crate::action::PickKind::ClientApp
+        } else {
+            crate::action::PickKind::Folder
+        };
+        let target = target.to_owned();
+        let action = a
+            .payload
+            .get("reply_action")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.action.clone());
+        let context = a
+            .payload
+            .get("reply_context")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| a.context.clone());
+        let (Some(action), Some(context), Some(picker)) = (action, context, self.shared.folder_picker()) else {
+            return;
+        };
+        let host = self.host.clone();
+        tokio::spawn(async move {
+            let path = tokio::task::spawn_blocking(move || picker(kind)).await.ok().flatten();
+            let payload = serde_json::json!({ "event": "FolderPicked", "target": target, "path": path });
+            let _ = host.send(Outbound::SendToPropertyInspector { action, context, payload }).await;
+        });
+    }
+
+    async fn reply_to_pi(&self, a: &sd_protocol::ActionEvt, payload: serde_json::Value) {
         let action = a
             .payload
             .get("reply_action")
@@ -207,11 +332,17 @@ impl Orchestrator {
             .map(str::to_owned)
             .or_else(|| a.context.clone());
         let (Some(action), Some(context)) = (action, context) else { return };
-        let _ = self
-            .host
-            .send(Outbound::SendToPropertyInspector { action, context, payload: report.payload() })
-            .await;
+        let _ = self.host.send(Outbound::SendToPropertyInspector { action, context, payload }).await;
     }
+}
+
+fn open_folder(dir: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(dir).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(dir).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
 }
 
 #[cfg(test)]
@@ -321,7 +452,7 @@ mod tests {
         tx.send(appear("c1")).await.unwrap();
         assert_eq!(state_of(&next_out(&mut rx).await), 1);
 
-        shared.apply_update_notice("9.9.9".into());
+        shared.apply_update_notice("9.9.9".into(), None, None);
         match next_out(&mut rx).await {
             Outbound::SendToPropertyInspector { payload, .. } => {
                 assert_eq!(payload["event"], "LocalStatus");
@@ -371,6 +502,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pick_folder_replies_with_selected_path() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_folder_picker(Arc::new(|kind: crate::action::PickKind| match kind {
+            crate::action::PickKind::Folder => Some("/Users/me/Music".to_owned()),
+            crate::action::PickKind::ClientApp => None,
+        }));
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "pickFolder",
+                "target": "download",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { action, context, payload } => {
+                assert_eq!(action, "com.judd1.yandex_music.action.next");
+                assert_eq!(context, "BTN-1");
+                assert_eq!(payload["event"], "FolderPicked");
+                assert_eq!(payload["target"], "download");
+                assert_eq!(payload["path"], "/Users/me/Music");
+            }
+            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn pick_folder_cancel_replies_with_null_path() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_folder_picker(Arc::new(|_kind: crate::action::PickKind| None));
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "pickFolder",
+                "target": "client",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "FolderPicked");
+                assert_eq!(payload["target"], "client");
+                assert!(payload["path"].is_null());
+            }
+            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn check_client_path_is_silent_without_checker_or_reply_address() {
         let (tx, mut rx, shared) = run_orch(Interests::all());
         let req = |path: &str| {
@@ -391,6 +581,112 @@ mod tests {
         }));
         tx.send(req("x")).await.unwrap();
         expect_silence(&mut rx).await;
+    }
+
+    #[tokio::test]
+    async fn get_update_info_replies_with_current_version() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_current_version("2.4.0".into());
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "getUpdateInfo",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "UpdateInfo");
+                assert_eq!(payload["currentVersion"], "2.4.0");
+                assert_eq!(payload["hasUpdate"], false);
+            }
+            other => panic!("ожидался UpdateInfo, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_logs_replies_with_buffer() {
+        let (tx, mut rx, _s) = run_orch(Interests::all());
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "getLogs",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "LogBuffer");
+                assert!(payload["lines"].is_array());
+            }
+            other => panic!("ожидался LogBuffer, {other:?}"),
+        }
+    }
+
+    #[test]
+    fn log_buffer_payload_splits_lines_into_at_level_text() {
+        let shared = Shared::new();
+        let ring = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
+            "2026-07-24T12:34:56.789012Z  INFO Plugin Start".to_owned(),
+            "plain fallback line".to_owned(),
+        ])));
+        shared.set_log_ring(ring);
+        shared.set_time_offset(10800);
+        let payload = shared.log_buffer_payload();
+        let lines = payload["lines"].as_array().unwrap();
+        assert_eq!(lines[0]["at"], "15:34:56");
+        assert_eq!(lines[0]["level"], "info");
+        assert_eq!(lines[0]["text"], "Plugin Start");
+        assert!(lines[1].get("at").is_none());
+        assert!(lines[1].get("level").is_none());
+        assert_eq!(lines[1]["text"], "plain fallback line");
+    }
+
+    #[tokio::test]
+    async fn check_updates_runs_checker_and_replies_with_notes() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_current_version("2.4.0".into());
+        shared.set_update_checker(Arc::new(|| {
+            Box::pin(async {
+                Some(ym_model::UpdateCheck {
+                    latest: "2.5.0".into(),
+                    notes: Some("• fix".into()),
+                    url: Some("https://x/rel".into()),
+                    has_update: true,
+                })
+            })
+        }));
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "checkUpdates",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "UpdateInfo");
+                assert_eq!(payload["latestVersion"], "2.5.0");
+                assert_eq!(payload["releaseNotes"], "• fix");
+                assert_eq!(payload["hasUpdate"], true);
+            }
+            other => panic!("ожидался UpdateInfo, {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -565,6 +861,12 @@ mod tests {
             async fn toggle_dislike(&self) -> ActionResult {
                 ActionResult::default()
             }
+            async fn toggle_shuffle(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_repeat(&self) -> ActionResult {
+                ActionResult::default()
+            }
             async fn change_volume(&self, _a: ym_model::ports::VolumeAction) -> ActionResult {
                 ActionResult::default()
             }
@@ -719,6 +1021,84 @@ mod tests {
         assert!(krx.try_recv().is_err(), "кик не должен уходить в ynison-режиме");
     }
 
+    fn global_settings_evt(settings: serde_json::Value) -> Inbound {
+        Inbound::DidReceiveGlobalSettings(sd_protocol::GlobalEvt {
+            context: None,
+            payload: json!({ "settings": settings }),
+        })
+    }
+
+    fn appear_launch(context: &str) -> Inbound {
+        Inbound::WillAppear(ActionEvt {
+            context: Some(context.into()),
+            action: Some("com.judd1.yandex_music.action.launch".into()),
+            device: None,
+            payload: json!({ "settings": {} }),
+        })
+    }
+
+    fn run_real_orch() -> (mpsc::Sender<Inbound>, mpsc::Receiver<Outbound>, mpsc::Receiver<()>) {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(256);
+        let shared = Shared::new();
+        let (ktx, krx) = mpsc::channel(4);
+        shared.set_launch_kick(ktx);
+        let factory: ActionFactory = Arc::new(|uuid: &str| crate::registry::build_action(uuid));
+        tokio::spawn(Orchestrator::new("P".into(), out_tx, shared, factory).run(in_rx));
+        (in_tx, out_rx, krx)
+    }
+
+    #[tokio::test]
+    async fn key_down_no_kick_when_any_button_scope_disabled() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        let (ktx, mut krx) = mpsc::channel(4);
+        shared.set_launch_kick(ktx);
+
+        tx.send(global_settings_evt(json!({ "launch_from_any_button": false }))).await.unwrap();
+        tx.send(appear("c1")).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 1);
+        tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 9);
+        assert!(krx.try_recv().is_err(), "при выключенном scope обычная кнопка не пинает запуск");
+    }
+
+    #[tokio::test]
+    async fn dial_down_no_kick_when_any_button_scope_disabled() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        let (ktx, mut krx) = mpsc::channel(4);
+        shared.set_launch_kick(ktx);
+
+        tx.send(global_settings_evt(json!({ "launch_from_any_button": false }))).await.unwrap();
+        tx.send(appear("c1")).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 1);
+        tx.send(Inbound::DialDown(plain("c1"))).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 8);
+        assert!(krx.try_recv().is_err(), "при выключенном scope энкодер не пинает запуск");
+    }
+
+    #[tokio::test]
+    async fn launcher_key_down_kicks_even_when_scope_disabled() {
+        let (tx, mut rx, mut krx) = run_real_orch();
+        tx.send(global_settings_evt(json!({ "launch_from_any_button": false }))).await.unwrap();
+        tx.send(appear_launch("c1")).await.unwrap();
+        assert!(matches!(next_out(&mut rx).await, Outbound::SetImage { .. }));
+        tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
+        assert!(matches!(next_out(&mut rx).await, Outbound::ShowOk { .. }));
+        assert!(krx.try_recv().is_ok(), "лаунчер обязан пинать запуск при любом scope");
+        assert!(krx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn launcher_key_down_single_kick_when_scope_enabled() {
+        let (tx, mut rx, mut krx) = run_real_orch();
+        tx.send(appear_launch("c1")).await.unwrap();
+        assert!(matches!(next_out(&mut rx).await, Outbound::SetImage { .. }));
+        tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
+        assert!(matches!(next_out(&mut rx).await, Outbound::ShowOk { .. }));
+        assert!(krx.try_recv().is_ok(), "ожидался ровно один кик от лаунчера");
+        assert!(krx.try_recv().is_err(), "оркестратор не должен дублировать кик лаунчера");
+    }
+
     #[tokio::test]
     async fn dial_up_default_is_noop() {
         let (tx, mut rx, _s) = run_orch(Interests::all());
@@ -757,6 +1137,12 @@ mod tests {
             async fn toggle_dislike(&self) -> ActionResult {
                 ActionResult::default()
             }
+            async fn toggle_shuffle(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_repeat(&self) -> ActionResult {
+                ActionResult::default()
+            }
             async fn change_volume(&self, _a: VolumeAction) -> ActionResult {
                 ActionResult::default()
             }
@@ -776,5 +1162,115 @@ mod tests {
         in_tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
         assert_eq!(state_of(&next_out(&mut out_rx).await), 9);
         assert!(krx.try_recv().is_err(), "кик не должен уходить при живом подключении");
+    }
+
+    fn command(event: &str, extra: serde_json::Value) -> Inbound {
+        let mut payload = json!({
+            "event": event,
+            "reply_action": "com.judd1.yandex_music.action.next",
+            "reply_context": "BTN-1",
+        });
+        if let (Some(obj), Some(ex)) = (payload.as_object_mut(), extra.as_object()) {
+            for (k, v) in ex {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+        Inbound::SendToPlugin(ActionEvt { context: None, action: None, device: None, payload })
+    }
+
+    #[tokio::test]
+    async fn get_stats_replies_with_stats_data() {
+        let (tx, mut rx, _s) = run_orch(Interests::all());
+        tx.send(command("getStats", json!({ "period": "week" }))).await.unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "StatsData");
+                assert_eq!(payload["period"], "week");
+                assert!(payload["byHour"].is_array());
+                assert!(payload["actions"].is_object());
+            }
+            other => panic!("ожидался StatsData, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_edition_replies_with_edition_info() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_edition("elgato");
+        tx.send(command("getEdition", json!({}))).await.unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "EditionInfo");
+                assert_eq!(payload["edition"], "elgato");
+            }
+            other => panic!("ожидался EditionInfo, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_connection_replies_local_status_with_port() {
+        let (tx, mut rx, _s) = run_orch(Interests::all());
+        tx.send(command("checkConnection", json!({}))).await.unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "LocalStatus");
+                assert_eq!(payload["status"], "disconnected");
+                assert!(payload.as_object().unwrap().contains_key("port"));
+            }
+            other => panic!("ожидался LocalStatus, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn launch_client_kicks_and_replies_loading() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        let (ktx, mut krx) = mpsc::channel(4);
+        shared.set_launch_kick(ktx);
+        tx.send(command("launchClient", json!({}))).await.unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "LocalStatus");
+                assert_eq!(payload["status"], "loading");
+            }
+            other => panic!("ожидался LocalStatus loading, {other:?}"),
+        }
+        assert!(krx.try_recv().is_ok(), "launchClient должен пнуть лаунчер");
+    }
+
+    #[tokio::test]
+    async fn key_down_records_action_counter() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        tx.send(appear("c1")).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 1);
+        tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
+        assert_eq!(state_of(&next_out(&mut rx).await), 9);
+        let stats = shared.stats_payload("week");
+        assert_eq!(stats["actions"]["next"], 1);
+    }
+
+    #[tokio::test]
+    async fn get_health_replies_with_health_data() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_current_version("2.5.0".into());
+        shared.set_edition("full");
+        tx.send(command("getHealth", json!({}))).await.unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => {
+                assert_eq!(payload["event"], "HealthData");
+                assert_eq!(payload["version"], "2.5.0");
+                assert_eq!(payload["edition"], "full");
+                assert_eq!(payload["connected"], false);
+                assert_eq!(payload["hasToken"], false);
+                let checks = payload["checks"].as_array().expect("checks array");
+                assert_eq!(checks.len(), 10);
+                let by = |id: &str| checks.iter().find(|c| c["id"] == id).unwrap_or_else(|| panic!("нет проверки {id}"));
+                assert_eq!(by("host")["ok"], true);
+                assert_eq!(by("version")["ok"], true);
+                assert_eq!(by("version")["detail"], "2.5.0");
+                assert_eq!(by("client")["ok"], false);
+                assert_eq!(by("port")["ok"], false);
+            }
+            other => panic!("ожидался HealthData, {other:?}"),
+        }
     }
 }

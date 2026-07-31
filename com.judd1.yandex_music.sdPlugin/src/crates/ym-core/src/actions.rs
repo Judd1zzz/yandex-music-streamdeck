@@ -1,7 +1,9 @@
 mod display;
 mod download;
 mod helpers;
+mod launch;
 mod likes;
+mod modes;
 mod transport;
 mod volume;
 
@@ -11,7 +13,9 @@ mod test_support;
 pub use display::{Info, Progress};
 pub use download::Download;
 pub use helpers::clipboard_text;
+pub use launch::LaunchClient;
 pub use likes::{Dislike, Like};
+pub use modes::{Repeat, Shuffle};
 pub use transport::{NextTrack, PlayPause, PrevTrack};
 pub use volume::{Mute, VolumeDisplay, VolumeKnob, VolumeStep};
 
@@ -88,11 +92,11 @@ mod tests {
     async fn apply_update_notice_publishes_hint_once() {
         let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
         let mut bus = shared.subscribe();
-        shared.apply_update_notice("2.1.3".into());
+        shared.apply_update_notice("2.1.3".into(), None, None);
         assert_eq!(bus.recv().await.unwrap(), ym_model::StateEvent::UpdateHint);
-        shared.apply_update_notice("2.1.3".into());
+        shared.apply_update_notice("2.1.3".into(), None, None);
         assert!(bus.try_recv().is_err(), "повтор той же версии не публикует событие");
-        shared.apply_update_notice("2.1.4".into());
+        shared.apply_update_notice("2.1.4".into(), None, None);
         assert_eq!(bus.recv().await.unwrap(), ym_model::StateEvent::UpdateHint);
     }
 
@@ -104,7 +108,7 @@ mod tests {
         assert_pi_status(&rx.recv().await.unwrap(), "LocalStatus", "connected");
         assert!(rx.try_recv().is_err(), "без обновления второго сообщения нет");
 
-        shared.apply_update_notice("2.1.3".into());
+        shared.apply_update_notice("2.1.3".into(), None, None);
         ctx.report_status().await;
         assert_pi_status(&rx.recv().await.unwrap(), "LocalStatus", "connected");
         match &rx.recv().await.unwrap() {
@@ -119,7 +123,7 @@ mod tests {
     #[tokio::test]
     async fn report_status_appends_update_notice_ynison() {
         let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        shared.apply_update_notice("3.0.0".into());
+        shared.apply_update_notice("3.0.0".into(), None, None);
         let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
         ctx.report_status().await;
         assert_pi_status(&rx.recv().await.unwrap(), "TokenStatus", "missing");

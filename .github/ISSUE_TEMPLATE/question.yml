@@ -1,0 +1,28 @@
+name: ❓ Question / Вопрос
+description: Ask about setup or usage / Спросите про настройку или использование
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before asking, please skim the README — it covers install, requirements and common issues.
+        Перед вопросом загляните в README — там установка, требования и частые проблемы.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question / Ваш вопрос
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you've already tried / Что вы уже пробовали
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version / Версия плагина
+      placeholder: "2.4.0"

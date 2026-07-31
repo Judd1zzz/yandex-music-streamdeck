@@ -1,0 +1,146 @@
+name: 🐞 Bug report / Баг
+description: Report a problem with the plugin / Сообщите о проблеме с плагином
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in the fields below — it speeds up the fix a lot.
+        Спасибо за отчёт! Пожалуйста, заполните поля ниже — это сильно ускоряет исправление.
+
+  - type: dropdown
+    id: plugin_version
+    attributes:
+      label: Plugin version / Версия плагина
+      options:
+        - "2.4.0"
+        - "2.3.0"
+        - "2.2.0"
+        - "Earlier / Раньше"
+        - "Don't know / Не знаю"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build / Сборка
+      description: Where did you install the plugin from? / Откуда установлен плагин?
+      options:
+        - "Elgato Marketplace (Elgato Stream Deck app)"
+        - "StreamDock Store / Ajazz (StreamDock app)"
+        - "GitHub release (.streamDeckPlugin)"
+        - "Don't know / Не знаю"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS / Операционная система
+      options:
+        - "Windows 11"
+        - "Windows 10"
+        - "macOS 15 / 14 / 13"
+        - "macOS 12"
+        - "Other / Другое"
+    validations:
+      required: true
+
+  - type: input
+    id: host_version
+    attributes:
+      label: Stream Deck app version / Версия приложения Stream Deck
+      description: "Elgato: Preferences → About. StreamDock/Ajazz: gear icon → Software version. / StreamDock: Шестерёнка → Версия ПО."
+      placeholder: "e.g. Elgato 6.9 / StreamDock 3.10.200"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: control_mode
+    attributes:
+      label: Control mode / Режим управления
+      description: Settings → Control mode. / Настройки → Тип управления.
+      options:
+        - "Local (default) / Local (по умолчанию)"
+        - "Ynison (experimental) / Ynison (экспериментальный)"
+        - "Don't know / Не знаю"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device model / Модель устройства
+      placeholder: "e.g. Elgato Stream Deck MK.2 / Ajazz AKP153 / Mirabox 293S"
+
+  - type: input
+    id: ym_client
+    attributes:
+      label: Yandex Music client + source / Клиент Яндекс Музыки и источник
+      description: "The Microsoft Store build is NOT supported — install from music.yandex.ru/download. / Версия из Microsoft Store НЕ поддерживается — ставьте с music.yandex.ru/download."
+      placeholder: "e.g. desktop client from music.yandex.ru/download"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / Категория проблемы
+      options:
+        - "Connection / CDP (Local mode) — Подключение"
+        - "Playback control — Управление воспроизведением"
+        - "Volume / Knob — Громкость / ручка"
+        - "Button rendering / styles — Отрисовка / стили кнопок"
+        - "Track info / progress — Инфо о треке / прогресс"
+        - "Download — Скачивание"
+        - "Discord Rich Presence"
+        - "Updates — Обновления"
+        - "Token / Ynison — Токен / Ynison"
+        - "Settings dashboard — Панель настроек"
+        - "Other — Другое"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Шаги для воспроизведения
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / Ожидаемое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / Фактическое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Plugin log / Лог плагина
+      description: |
+        Attach or paste plugin.log. The easiest way: open the settings dashboard → Diagnostics → "Open logs folder".
+        Проще всего: откройте панель настроек → Диагностика → «Открыть папку логов».
+        The file lives in the plugin's `logs/` folder next to the manifest, e.g. on StreamDock:
+        Файл лежит в папке `logs/` рядом с плагином, например на StreamDock:
+        • Windows: %AppData%\HotSpot\StreamDock\plugins\com.judd1.yandex_music.sdPlugin\logs\plugin.log
+        • macOS: ~/Library/Application Support/HotSpot/StreamDock/plugins/com.judd1.yandex_music.sdPlugin/logs/plugin.log
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context / Дополнительно
+      description: Screenshots, video, anything else. / Скриншоты, видео, прочее.

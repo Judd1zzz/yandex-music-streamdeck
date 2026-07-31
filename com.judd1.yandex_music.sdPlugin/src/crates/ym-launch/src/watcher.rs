@@ -105,7 +105,7 @@ async fn cycle(
         return;
     }
     let cfg = deps.config.borrow().clone();
-    if !cfg.enabled {
+    if !cfg.enabled && !kick {
         return;
     }
     let any_local = deps.any_local.load(Ordering::Acquire);

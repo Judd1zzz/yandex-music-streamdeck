@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📦 Releases / Релизы
+    url: https://github.com/Judd1zzz/yandex-music-streamdeck/releases
+    about: Download the latest version / Скачать последнюю версию
+  - name: 📖 README / Документация
+    url: https://github.com/Judd1zzz/yandex-music-streamdeck#readme
+    about: Setup, requirements, troubleshooting / Установка, требования, решение проблем

@@ -59,6 +59,22 @@ pub fn download_icon(style: &str, connected: bool, downloading: bool) -> String 
     }
 }
 
+pub fn shuffle_icon(style: &str, connected: bool, on: bool) -> (Option<u8>, String) {
+    let onoff = if on { "on" } else { "off" };
+    if !connected {
+        return (None, format!("btn_yandex_music_shuffle_{style}_{onoff}_loading.png"));
+    }
+    (Some(on as u8), format!("btn_yandex_music_shuffle_{style}_{onoff}.png"))
+}
+
+pub fn repeat_icon(style: &str, connected: bool, mode: u8) -> (Option<u8>, String) {
+    let mode = mode.min(2);
+    if !connected {
+        return (None, format!("btn_yandex_music_repeat_{style}_{mode}_loading.png"));
+    }
+    (Some(mode), format!("btn_yandex_music_repeat_{style}_{mode}.png"))
+}
+
 pub fn vol_level_variant(pct: u32) -> u8 {
     if pct == 0 {
         0
@@ -139,5 +155,22 @@ mod tests {
         assert_eq!(download_icon("v1", true, false), "btn_yandex_music_download_v1.png");
         assert_eq!(download_icon("v2", true, true), "btn_yandex_music_download_v2_loading.png");
         assert_eq!(download_icon("v1", false, false), "btn_yandex_music_download_v1_loading.png");
+    }
+
+    #[test]
+    fn shuffle_names() {
+        assert_eq!(shuffle_icon("v1", true, true), (Some(1), "btn_yandex_music_shuffle_v1_on.png".into()));
+        assert_eq!(shuffle_icon("v2", true, false), (Some(0), "btn_yandex_music_shuffle_v2_off.png".into()));
+        assert_eq!(shuffle_icon("v1", false, true), (None, "btn_yandex_music_shuffle_v1_on_loading.png".into()));
+        assert_eq!(shuffle_icon("v2", false, false), (None, "btn_yandex_music_shuffle_v2_off_loading.png".into()));
+    }
+
+    #[test]
+    fn repeat_names() {
+        assert_eq!(repeat_icon("v1", true, 0), (Some(0), "btn_yandex_music_repeat_v1_0.png".into()));
+        assert_eq!(repeat_icon("v1", true, 1), (Some(1), "btn_yandex_music_repeat_v1_1.png".into()));
+        assert_eq!(repeat_icon("v2", true, 2), (Some(2), "btn_yandex_music_repeat_v2_2.png".into()));
+        assert_eq!(repeat_icon("v2", true, 9), (Some(2), "btn_yandex_music_repeat_v2_2.png".into()));
+        assert_eq!(repeat_icon("v1", false, 1), (None, "btn_yandex_music_repeat_v1_1_loading.png".into()));
     }
 }

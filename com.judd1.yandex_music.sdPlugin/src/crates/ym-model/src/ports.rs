@@ -17,6 +17,9 @@ pub trait MediaController: Send + Sync {
     fn is_connected(&self) -> bool;
     fn snapshot(&self) -> MediaState;
     fn set_local_port(&self, _port: u16) {}
+    fn active_port(&self) -> Option<u16> {
+        None
+    }
     async fn oauth_token(&self) -> Option<String> {
         None
     }
@@ -25,6 +28,8 @@ pub trait MediaController: Send + Sync {
     async fn prev(&self) -> ActionResult;
     async fn toggle_like(&self) -> ActionResult;
     async fn toggle_dislike(&self) -> ActionResult;
+    async fn toggle_shuffle(&self) -> ActionResult;
+    async fn toggle_repeat(&self) -> ActionResult;
     async fn change_volume(&self, action: VolumeAction) -> ActionResult;
 }
 
@@ -51,6 +56,12 @@ impl MediaController for StubController {
         ActionResult::default()
     }
     async fn toggle_dislike(&self) -> ActionResult {
+        ActionResult::default()
+    }
+    async fn toggle_shuffle(&self) -> ActionResult {
+        ActionResult::default()
+    }
+    async fn toggle_repeat(&self) -> ActionResult {
         ActionResult::default()
     }
     async fn change_volume(&self, _action: VolumeAction) -> ActionResult {

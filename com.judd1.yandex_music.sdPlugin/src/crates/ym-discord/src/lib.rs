@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use discord_rich_presence::activity::{Activity, ActivityType, Assets, Button, Timestamps};
@@ -6,6 +7,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
+use ym_model::ports::MediaController;
 use ym_model::{DiscordConfig, PlaybackData, StateEvent, TrackData};
 
 const THROTTLE: Duration = Duration::from_secs(3);
@@ -183,6 +185,9 @@ struct Service<F: SinkFactory> {
     last_send_at: Option<Instant>,
     paused_since: Option<Instant>,
     afk_cleared: bool,
+    status_tx: Option<watch::Sender<String>>,
+    last_status: Option<String>,
+    controller: Option<Arc<dyn MediaController>>,
 }
 
 impl<F: SinkFactory> Service<F> {
@@ -198,6 +203,19 @@ impl<F: SinkFactory> Service<F> {
             last_send_at: None,
             paused_since: None,
             afk_cleared: false,
+            status_tx: None,
+            last_status: None,
+            controller: None,
+        }
+    }
+
+    fn set_status(&mut self, s: &str) {
+        if self.last_status.as_deref() == Some(s) {
+            return;
+        }
+        self.last_status = Some(s.to_owned());
+        if let Some(tx) = &self.status_tx {
+            let _ = tx.send(s.to_owned());
         }
     }
 
@@ -238,6 +256,7 @@ impl<F: SinkFactory> Service<F> {
     fn reconcile(&mut self) {
         let Some(app_id) = self.cfg.enabled.then(|| self.cfg.app_id.clone()).flatten() else {
             self.teardown();
+            self.set_status("off");
             return;
         };
         if self.sink.is_some() && self.sink_app_id.as_deref() != Some(app_id.as_str()) {
@@ -252,14 +271,31 @@ impl<F: SinkFactory> Service<F> {
                 }
                 Err(e) => {
                     tracing::debug!("discord connect failed: {e}");
+                    self.set_status("error");
                     return;
                 }
             }
         }
-        let Some(track) = self.track.clone() else { return };
-        if track.title.trim().is_empty() && track.artist.trim().is_empty() {
+        let connected = self.controller.as_ref().map(|c| c.is_connected()).unwrap_or(true);
+        if !connected {
+            self.set_status("no_client");
             return;
         }
+        let track = self.track.clone().or_else(|| {
+            self.controller.as_ref().and_then(|c| {
+                let t = c.snapshot().track;
+                (!t.title.trim().is_empty() || !t.artist.trim().is_empty()).then_some(t)
+            })
+        });
+        let Some(track) = track else {
+            self.set_status("no_track");
+            return;
+        };
+        if track.title.trim().is_empty() && track.artist.trim().is_empty() {
+            self.set_status("no_track");
+            return;
+        }
+        self.set_status("active");
         let playing = self.playback.as_ref().map(|p| p.is_playing).unwrap_or(false);
         if !playing {
             let since = *self.paused_since.get_or_insert_with(Instant::now);
@@ -286,6 +322,7 @@ impl<F: SinkFactory> Service<F> {
         if self.last_send_at.is_some_and(|t| t.elapsed() < THROTTLE) {
             return;
         }
+        let mut failed = false;
         if let Some(s) = self.sink.as_mut() {
             match s.set(&presence) {
                 Ok(()) => {
@@ -296,8 +333,12 @@ impl<F: SinkFactory> Service<F> {
                     tracing::debug!("discord set failed: {e}");
                     self.sink = None;
                     self.sink_app_id = None;
+                    failed = true;
                 }
             }
+        }
+        if failed {
+            self.set_status("error");
         }
     }
 }
@@ -307,8 +348,12 @@ async fn run<F: SinkFactory>(
     mut cfg_rx: watch::Receiver<DiscordConfig>,
     factory: F,
     shutdown: CancellationToken,
+    status_tx: Option<watch::Sender<String>>,
+    controller: Option<Arc<dyn MediaController>>,
 ) {
     let mut svc = Service::new(factory, cfg_rx.borrow().clone());
+    svc.status_tx = status_tx;
+    svc.controller = controller;
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
@@ -337,8 +382,10 @@ pub fn spawn(
     state_rx: broadcast::Receiver<StateEvent>,
     cfg_rx: watch::Receiver<DiscordConfig>,
     shutdown: CancellationToken,
+    status_tx: watch::Sender<String>,
+    controller: Arc<dyn MediaController>,
 ) -> JoinHandle<()> {
-    tokio::spawn(run(state_rx, cfg_rx, RealFactory, shutdown))
+    tokio::spawn(run(state_rx, cfg_rx, RealFactory, shutdown, Some(status_tx), Some(controller)))
 }
 
 #[cfg(test)]
@@ -536,7 +583,7 @@ mod tests {
             watch::channel(DiscordConfig { enabled: true, app_id: Some("app1".to_owned()) });
         let shutdown = CancellationToken::new();
         let factory = MockFactory { ops: ops.clone(), fail: false };
-        let task = tokio::spawn(run(state_rx, cfg_rx, factory, shutdown.clone()));
+        let task = tokio::spawn(run(state_rx, cfg_rx, factory, shutdown.clone(), None, None));
 
         state_tx.send(StateEvent::Track(track())).unwrap();
         state_tx.send(StateEvent::Playback(playing(10.0, 100.0))).unwrap();
@@ -569,5 +616,97 @@ mod tests {
         svc.on_event(StateEvent::Connection(false));
         assert!(svc.sink.is_none());
         assert!(log.ops.lock().unwrap().contains(&Op::Clear));
+    }
+
+    #[test]
+    fn status_transitions_no_track_active_off() {
+        let log = Log::default();
+        let (tx, mut rx) = watch::channel(String::new());
+        let mut svc = service(true, Some("app1"), &log);
+        svc.status_tx = Some(tx);
+
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "no_track");
+
+        svc.on_event(StateEvent::Track(track()));
+        svc.on_event(StateEvent::Playback(playing(10.0, 100.0)));
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "active");
+
+        svc.on_config(DiscordConfig { enabled: false, app_id: Some("app1".to_owned()) });
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "off");
+    }
+
+    #[test]
+    fn status_error_on_connect_failure() {
+        let log = Log { fail_connect: true, ..Default::default() };
+        let (tx, mut rx) = watch::channel(String::new());
+        let mut svc = service(true, Some("app1"), &log);
+        svc.status_tx = Some(tx);
+        svc.on_event(StateEvent::Track(track()));
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "error");
+    }
+
+    struct MockController {
+        connected: bool,
+        track: TrackData,
+    }
+    #[async_trait::async_trait]
+    impl MediaController for MockController {
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+        fn snapshot(&self) -> ym_model::MediaState {
+            ym_model::MediaState { track: self.track.clone(), ..Default::default() }
+        }
+        async fn play_pause(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn next(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn prev(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn toggle_like(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn toggle_dislike(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn toggle_shuffle(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn toggle_repeat(&self) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+        async fn change_volume(&self, _a: ym_model::ports::VolumeAction) -> ym_model::ActionResult {
+            ym_model::ActionResult::default()
+        }
+    }
+
+    #[test]
+    fn status_no_client_when_cdp_offline() {
+        let log = Log::default();
+        let (tx, mut rx) = watch::channel(String::new());
+        let mut svc = service(true, Some("app1"), &log);
+        svc.status_tx = Some(tx);
+        svc.controller = Some(Arc::new(MockController { connected: false, track: track() }));
+        svc.on_event(StateEvent::Track(track()));
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "no_client");
+    }
+
+    #[test]
+    fn status_active_from_snapshot_without_track_event() {
+        let log = Log::default();
+        let (tx, mut rx) = watch::channel(String::new());
+        let mut svc = service(true, Some("app1"), &log);
+        svc.status_tx = Some(tx);
+        svc.controller = Some(Arc::new(MockController { connected: true, track: track() }));
+        svc.reconcile();
+        assert_eq!(*rx.borrow_and_update(), "active");
     }
 }

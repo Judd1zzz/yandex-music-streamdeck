@@ -9,13 +9,12 @@ ym-model.workspace = true
 tokio = { workspace = true, features = ["process"] }
 sysinfo.workspace = true
 tokio-util.workspace = true
-reqwest.workspace = true
-serde_json.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+ym-launcher.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

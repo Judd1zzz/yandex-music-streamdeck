@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::probe::PortStatus;
-
 pub const GRACE_SECS: u64 = 10;
-pub const BIND_FAIL_SECS: u64 = 60;
 pub const COOLDOWN: Duration = Duration::from_secs(60);
 pub const KICK_SPACING: Duration = Duration::from_secs(5);
 pub const MAX_FAILURES: u32 = 3;
@@ -13,7 +10,6 @@ pub const MAX_FAILURES: u32 = 3;
 pub struct MainProc {
     pub pid: u32,
     pub exe: PathBuf,
-    pub debug_port: Option<u16>,
     pub age_secs: u64,
     pub cmd_unreadable: bool,
 }
@@ -24,9 +20,6 @@ pub struct DecideInput {
     pub connected: bool,
     pub any_local: bool,
     pub kick: bool,
-    pub port: u16,
-    pub port_status: PortStatus,
-    pub other_port_status: Option<PortStatus>,
     pub main_proc: Option<MainProc>,
     pub ambiguous: bool,
     pub cooldown_ok: bool,
@@ -35,10 +28,8 @@ pub struct DecideInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     Nothing,
-    AdoptPort(u16),
     Restart { pid: u32, exe: PathBuf },
     Launch,
-    HintForeignPort,
     HintElevated,
 }
 
@@ -49,19 +40,6 @@ pub fn decide(i: &DecideInput) -> Decision {
     if i.ambiguous {
         return Decision::Nothing;
     }
-    if i.port_status == PortStatus::YmAlive {
-        return Decision::Nothing;
-    }
-    if let Some(m) = &i.main_proc
-        && let Some(p) = m.debug_port
-        && p != i.port
-        && i.other_port_status == Some(PortStatus::YmAlive)
-    {
-        return Decision::AdoptPort(p);
-    }
-    if i.port_status == PortStatus::Foreign {
-        return Decision::HintForeignPort;
-    }
     match &i.main_proc {
         Some(m) if m.cmd_unreadable => {
             if m.age_secs < GRACE_SECS {
@@ -71,8 +49,7 @@ pub fn decide(i: &DecideInput) -> Decision {
             }
         }
         Some(m) => {
-            let grace = if m.debug_port.is_some() { BIND_FAIL_SECS } else { GRACE_SECS };
-            if m.age_secs < grace || !i.cooldown_ok {
+            if m.age_secs < GRACE_SECS || !i.cooldown_ok {
                 Decision::Nothing
             } else {
                 Decision::Restart { pid: m.pid, exe: m.exe.clone() }
@@ -125,44 +102,40 @@ mod tests {
             connected: false,
             any_local: true,
             kick: false,
-            port: 9222,
-            port_status: PortStatus::Dead,
-            other_port_status: None,
             main_proc: None,
             ambiguous: false,
             cooldown_ok: true,
         }
     }
 
-    fn main_proc(debug_port: Option<u16>, age_secs: u64) -> MainProc {
+    fn main_proc(age_secs: u64) -> MainProc {
         MainProc {
             pid: 42,
             exe: PathBuf::from("/Applications/Яндекс Музыка.app/Contents/MacOS/Яндекс Музыка"),
-            debug_port,
             age_secs,
             cmd_unreadable: false,
         }
     }
 
     fn elevated_proc(age_secs: u64) -> MainProc {
-        MainProc { cmd_unreadable: true, ..main_proc(None, age_secs) }
+        MainProc { cmd_unreadable: true, ..main_proc(age_secs) }
     }
 
     #[test]
     fn disabled_connected_or_idle_do_nothing() {
         let mut i = base();
         i.enabled = false;
-        i.main_proc = Some(main_proc(None, 999));
+        i.main_proc = Some(main_proc(999));
         assert_eq!(decide(&i), Decision::Nothing);
 
         let mut i = base();
         i.connected = true;
-        i.main_proc = Some(main_proc(None, 999));
+        i.main_proc = Some(main_proc(999));
         assert_eq!(decide(&i), Decision::Nothing);
 
         let mut i = base();
         i.any_local = false;
-        i.main_proc = Some(main_proc(None, 999));
+        i.main_proc = Some(main_proc(999));
         assert_eq!(decide(&i), Decision::Nothing);
     }
 
@@ -171,7 +144,7 @@ mod tests {
         let mut i = base();
         i.any_local = false;
         i.kick = true;
-        i.main_proc = Some(main_proc(None, 999));
+        i.main_proc = Some(main_proc(999));
         assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
     }
 
@@ -183,62 +156,18 @@ mod tests {
     }
 
     #[test]
-    fn ym_alive_waits_for_cdp() {
+    fn running_client_without_bridge_is_restarted() {
         let mut i = base();
-        i.port_status = PortStatus::YmAlive;
-        i.main_proc = Some(main_proc(Some(9222), 999));
-        assert_eq!(decide(&i), Decision::Nothing);
-    }
-
-    #[test]
-    fn other_port_is_adopted_only_when_ym_answers_there() {
-        let mut i = base();
-        i.main_proc = Some(main_proc(Some(9333), 999));
-        i.other_port_status = Some(PortStatus::YmAlive);
-        assert_eq!(decide(&i), Decision::AdoptPort(9333));
-        i.port_status = PortStatus::Foreign;
-        assert_eq!(decide(&i), Decision::AdoptPort(9333));
-    }
-
-    #[test]
-    fn stale_flag_port_is_not_adopted_back() {
-        let mut i = base();
-        i.main_proc = Some(main_proc(Some(9333), 999));
-        i.other_port_status = Some(PortStatus::Dead);
-        assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
-        i.other_port_status = Some(PortStatus::Foreign);
-        assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
-        i.main_proc = Some(main_proc(Some(9333), BIND_FAIL_SECS - 1));
-        assert_eq!(decide(&i), Decision::Nothing);
-    }
-
-    #[test]
-    fn foreign_port_hints_without_restart() {
-        let mut i = base();
-        i.port_status = PortStatus::Foreign;
-        i.main_proc = Some(main_proc(None, 999));
-        assert_eq!(decide(&i), Decision::HintForeignPort);
-        i.main_proc = Some(main_proc(Some(9222), 999));
-        assert_eq!(decide(&i), Decision::HintForeignPort);
-        i.main_proc = None;
-        assert_eq!(decide(&i), Decision::HintForeignPort);
-    }
-
-    #[test]
-    fn flagged_client_with_dead_port_gets_long_grace_then_restart() {
-        let mut i = base();
-        i.main_proc = Some(main_proc(Some(9222), BIND_FAIL_SECS - 1));
-        assert_eq!(decide(&i), Decision::Nothing);
-        i.main_proc = Some(main_proc(Some(9222), BIND_FAIL_SECS));
-        assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
+        i.main_proc = Some(main_proc(999));
+        assert_eq!(decide(&i), Decision::Restart { pid: 42, exe: main_proc(0).exe });
     }
 
     #[test]
     fn young_process_grace_then_restart() {
         let mut i = base();
-        i.main_proc = Some(main_proc(None, GRACE_SECS - 1));
+        i.main_proc = Some(main_proc(GRACE_SECS - 1));
         assert_eq!(decide(&i), Decision::Nothing);
-        i.main_proc = Some(main_proc(None, GRACE_SECS));
+        i.main_proc = Some(main_proc(GRACE_SECS));
         assert!(matches!(decide(&i), Decision::Restart { pid: 42, .. }));
     }
 
@@ -261,17 +190,9 @@ mod tests {
     }
 
     #[test]
-    fn elevated_main_with_alive_port_is_passive() {
-        let mut i = base();
-        i.port_status = PortStatus::YmAlive;
-        i.main_proc = Some(elevated_proc(999));
-        assert_eq!(decide(&i), Decision::Nothing);
-    }
-
-    #[test]
     fn restart_respects_cooldown() {
         let mut i = base();
-        i.main_proc = Some(main_proc(None, 999));
+        i.main_proc = Some(main_proc(999));
         i.cooldown_ok = false;
         assert_eq!(decide(&i), Decision::Nothing);
     }

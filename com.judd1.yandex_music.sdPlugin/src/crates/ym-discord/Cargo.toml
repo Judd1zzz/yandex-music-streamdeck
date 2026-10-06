@@ -13,3 +13,4 @@ discord-rich-presence.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

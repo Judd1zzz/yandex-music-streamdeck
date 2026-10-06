@@ -6,12 +6,6 @@ use ym_download::convert::process;
 use ym_download::decode::decode_all;
 use ym_download::tag::{TrackTags, write_tags};
 
-// Фикстуры сгенерированы вендореным минимальным ffmpeg (WAV-тишина 0.2с 44100 stereo):
-//   silence.flac:     ffmpeg -i silence.wav -c:a flac silence.flac
-//   silence_flac.mp4: ffmpeg -i silence.flac -c:a copy -strict -2 -f mp4 silence_flac.mp4
-//   silence.mp3:      ffmpeg -i silence.wav -c:a libmp3lame -b:a 320k silence.mp3
-//   silence.m4a:      ffmpeg -i silence.wav -c:a aac silence.m4a
-
 fn fixture(name: &str) -> Vec<u8> {
     let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
     std::fs::read(&p).unwrap_or_else(|e| panic!("фикстура {}: {e}", p.display()))

@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::state_event::StateEvent;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct TrackData {
     pub title: String,
     pub artist: String,
@@ -11,7 +11,7 @@ pub struct TrackData {
     pub track_id: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct PlaybackData {
     pub is_playing: bool,
     pub current_sec: f64,
@@ -20,33 +20,33 @@ pub struct PlaybackData {
     pub timestamp: f64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct LikeData {
     pub is_liked: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct DislikeData {
     pub is_disliked: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct VolumeData {
     pub current: f64,
     pub is_muted: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct ShuffleData {
     pub on: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct RepeatData {
     pub mode: u8,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct MediaState {
     pub track: TrackData,
     pub playback: PlaybackData,

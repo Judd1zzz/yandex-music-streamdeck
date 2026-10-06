@@ -1,6 +1,7 @@
 mod cli;
 mod log;
 mod single_instance;
+mod stats_dir;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,8 +10,8 @@ use cli::LaunchArgs;
 use sd_host::{HostConfig, HostHandle};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
-use ym_cdp::CdpController;
-use ym_core::{build_action, ActionFactory, MediaController, Orchestrator, Shared};
+use ym_core::{ActionFactory, MediaController, Orchestrator, Shared, build_action};
+use ym_remote_controller::RemoteController;
 use ym_render::Renderers;
 
 #[cfg(feature = "downloads")]
@@ -56,15 +57,9 @@ fn spawn_update(_shared: Arc<Shared>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async {})
 }
 
-struct CdpPortLink(Arc<CdpController>);
+struct RemoteLink(Arc<RemoteController>);
 
-impl ym_launch::CdpLink for CdpPortLink {
-    fn port(&self) -> u16 {
-        self.0.local_port()
-    }
-    fn set_port(&self, port: u16) {
-        self.0.set_local_port(port);
-    }
+impl ym_launch::CdpLink for RemoteLink {
     fn is_connected(&self) -> bool {
         MediaController::is_connected(self.0.as_ref())
     }
@@ -73,8 +68,20 @@ impl ym_launch::CdpLink for CdpPortLink {
 fn launch_cache_path() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().and_then(|b| b.parent()).map(|d| d.join(".ym_client_path")))
+        .and_then(|e| {
+            e.parent()
+                .and_then(|b| b.parent())
+                .map(|d| d.join(".ym_client_path"))
+        })
         .unwrap_or_else(|| std::env::temp_dir().join(".ym_client_path"))
+}
+
+#[cfg(windows)]
+fn bridge_dll_path() -> Option<std::path::PathBuf> {
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(|p| p.join("ym-bridge.dll"))
 }
 
 fn rival_process_running(sys: &mut sysinfo::System) -> bool {
@@ -85,33 +92,43 @@ fn rival_process_running(sys: &mut sysinfo::System) -> bool {
         .with_cwd(UpdateKind::Always);
     sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
     sys.processes().values().any(|p| {
-        let cmd: Vec<String> = p.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let cmd: Vec<String> = p
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
         ym_core::rival::proc_is_rival(p.exe(), &cmd, p.cwd())
     })
 }
 
 fn client_path_report(raw: &str) -> ym_core::ClientPathReport {
-    use ym_launch::resolve::{PathVerdict, check_client_path, client_file_name, current_os, fs_path_kind};
+    use ym_launch::resolve::{
+        PathVerdict, check_client_path, client_file_name, current_os, fs_path_kind,
+    };
     let os = current_os();
     let expected = client_file_name(os);
     match check_client_path(os, raw, &fs_path_kind) {
-        PathVerdict::Ok => ym_core::ClientPathReport { verdict: "ok", resolved: None, expected },
+        PathVerdict::Ok => ym_core::ClientPathReport {
+            verdict: "ok",
+            resolved: None,
+            expected,
+        },
         PathVerdict::OkDirCompleted(p) => ym_core::ClientPathReport {
             verdict: "ok_dir",
             resolved: Some(p.to_string_lossy().into_owned()),
             expected,
         },
-        PathVerdict::Missing => {
-            ym_core::ClientPathReport { verdict: "missing", resolved: None, expected }
-        }
-        PathVerdict::DirWithoutClient => {
-            ym_core::ClientPathReport { verdict: "dir_without_client", resolved: None, expected }
-        }
+        PathVerdict::Missing => ym_core::ClientPathReport {
+            verdict: "missing",
+            resolved: None,
+            expected,
+        },
+        PathVerdict::DirWithoutClient => ym_core::ClientPathReport {
+            verdict: "dir_without_client",
+            resolved: None,
+            expected,
+        },
     }
-}
-
-fn env_u16(key: &str, default: u16) -> u16 {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 #[cfg(feature = "self-update")]
@@ -152,22 +169,30 @@ async fn async_main(local_offset: i32) {
     let shutdown = CancellationToken::new();
     let render = Renderers::new();
     let (bus, _) = broadcast::channel(256);
-    let cdp_port = env_u16("YM_CDP_PORT", 9222);
-    let cdp = CdpController::new(cdp_port, bus.clone());
     let (dl_tx, dl_rx) = mpsc::channel::<String>(16);
-    cdp.set_download_tx(dl_tx);
-    let cdp_task = cdp.start(shutdown.clone());
-    let launch_link = cdp.clone();
-    let rival_cdp = cdp.clone();
+    let remote = RemoteController::new(bus.clone());
+    remote.set_download_tx(dl_tx);
+    let cdp_task = remote.start(shutdown.clone());
+    let launch_link: Arc<dyn ym_launch::CdpLink> = Arc::new(RemoteLink(remote.clone()));
+    let rival = remote.clone();
+    let cdp: Arc<dyn MediaController> = remote;
     let shared = Shared::wired(bus, cdp, render, make_downloader());
     shared.set_current_version(env!("CARGO_PKG_VERSION").to_owned());
     shared.set_log_ring(log_ring);
     shared.set_logs_enabled_flag(logs_flag);
     shared.set_log_dir(log::default_log_dir());
-    shared.set_stats_dir(log::default_log_dir(), local_offset);
+    shared.set_stats_dir(
+        stats_dir::prepare(&log::default_log_dir(), stats_dir::default_stats_dir()),
+        local_offset,
+    );
     shared.set_time_offset(local_offset);
-    shared.set_edition(if cfg!(feature = "downloads") { "full" } else { "elgato" });
-    let (discord_status_tx, mut discord_status_rx) = tokio::sync::watch::channel::<String>("disabled".to_owned());
+    shared.set_edition(if cfg!(feature = "downloads") {
+        "full"
+    } else {
+        "elgato"
+    });
+    let (discord_status_tx, mut discord_status_rx) =
+        tokio::sync::watch::channel::<String>("disabled".to_owned());
     let discord_task = ym_discord::spawn(
         shared.subscribe(),
         shared.subscribe_discord(),
@@ -197,13 +222,16 @@ async fn async_main(local_offset: i32) {
     }
     let update_task = spawn_update(shared.clone());
     let (reason_tx, mut reason_rx) = tokio::sync::watch::channel::<Option<String>>(None);
+    let inject_wake = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let launch_task = ym_launch::spawn(ym_launch::WatcherDeps {
-        cdp: Arc::new(CdpPortLink(launch_link)),
+        cdp: launch_link,
         events: shared.subscribe(),
         any_local: shared.any_local_flag(),
         config: shared.subscribe_launch(),
         kick: kick_rx,
-        ops: Arc::new(ym_launch::RealOps),
+        ops: Arc::new(ym_launch::RealOps {
+            launched: Some(inject_wake.clone()),
+        }),
         cache_path: launch_cache_path(),
         reason: reason_tx,
         shutdown: shutdown.clone(),
@@ -215,18 +243,45 @@ async fn async_main(local_offset: i32) {
             reason_shared.apply_launch_reason(v);
         }
     });
+    #[cfg(windows)]
+    if let Some(dll) = bridge_dll_path() {
+        if !ym_model::attest::bridge_trusted(&dll) {
+            tracing::error!(
+                "ym-bridge.dll не прошёл проверку подписи ({}) — внедрение заблокировано до совпадения подписи (fail-closed)",
+                dll.display()
+            );
+        }
+        let stop = shutdown.clone();
+        let wake = inject_wake.clone();
+        let _ = std::thread::Builder::new()
+            .name("ym-bridge-watchdog".into())
+            .spawn(move || {
+                let trust_dll = dll.clone();
+                ym_launcher::inject::run_watchdog(
+                    &dll,
+                    Duration::from_secs(3),
+                    move || ym_model::attest::bridge_trusted(&trust_dll),
+                    move || wake.swap(false, std::sync::atomic::Ordering::AcqRel),
+                    || stop.is_cancelled(),
+                );
+            });
+    }
     let dl_task = tokio::spawn(download_consumer(dl_rx, shared.clone(), shutdown.clone()));
     let stats_task = ym_core::stats::spawn(shared.clone(), shared.subscribe(), shutdown.clone());
     let rival_shared = shared.clone();
     let rival_shutdown = shutdown.clone();
     let rival_task = tokio::spawn(async move {
-        let installed =
-            ym_core::rival::plugins_dir().map(|d| ym_core::rival::installed_in(&d)).unwrap_or(false);
+        let installed = ym_core::rival::plugins_dir()
+            .map(|d| ym_core::rival::installed_in(&d))
+            .unwrap_or(false);
         let mut sys = sysinfo::System::new();
         loop {
             let running = rival_process_running(&mut sys);
-            let cdp_seen = rival_cdp.probe_rival().await;
-            rival_shared.set_rival(ym_core::rival::RivalState { installed, active: running || cdp_seen });
+            let cdp_seen = rival.probe_rival().await;
+            rival_shared.set_rival(ym_core::rival::RivalState {
+                installed,
+                active: running || cdp_seen,
+            });
             tokio::select! {
                 _ = rival_shutdown.cancelled() => break,
                 _ = tokio::time::sleep(Duration::from_secs(20)) => {}
@@ -235,8 +290,15 @@ async fn async_main(local_offset: i32) {
     });
     let factory: ActionFactory = Arc::new(build_action);
 
-    let mut host_cfg = HostConfig::new(args.port, args.plugin_uuid.clone(), args.register_event.clone());
-    if let Some(ms) = std::env::var("YM_HOST_BACKOFF_MS").ok().and_then(|s| s.parse::<u64>().ok()) {
+    let mut host_cfg = HostConfig::new(
+        args.port,
+        args.plugin_uuid.clone(),
+        args.register_event.clone(),
+    );
+    if let Some(ms) = std::env::var("YM_HOST_BACKOFF_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    {
         host_cfg.backoff = Duration::from_millis(ms);
     }
     let HostHandle { tx, inbound, task } = sd_host::spawn(host_cfg);
@@ -268,7 +330,10 @@ async fn async_main(local_offset: i32) {
         let _ = reason_task.await;
         let _ = rival_task.await;
     };
-    if tokio::time::timeout(Duration::from_secs(3), all).await.is_err() {
+    if tokio::time::timeout(Duration::from_secs(3), all)
+        .await
+        .is_err()
+    {
         tracing::warn!("часть фоновых задач не завершилась за 3с — принудительная отмена");
         for a in aborts {
             a.abort();
@@ -277,7 +342,11 @@ async fn async_main(local_offset: i32) {
     tracing::info!("Plugin exit");
 }
 
-async fn download_consumer(mut rx: mpsc::Receiver<String>, shared: Arc<Shared>, shutdown: CancellationToken) {
+async fn download_consumer(
+    mut rx: mpsc::Receiver<String>,
+    shared: Arc<Shared>,
+    shutdown: CancellationToken,
+) {
     loop {
         let track_id = tokio::select! {
             _ = shutdown.cancelled() => break,
@@ -352,13 +421,65 @@ mod tests {
     #[test]
     fn update_repo_override_and_defaults() {
         use super::parse_update_repo;
-        assert_eq!(parse_update_repo(Some("me/scratch")), ("me".to_owned(), "scratch".to_owned()));
-        assert_eq!(parse_update_repo(Some(" me / scratch ")), ("me".to_owned(), "scratch".to_owned()));
+        assert_eq!(
+            parse_update_repo(Some("me/scratch")),
+            ("me".to_owned(), "scratch".to_owned())
+        );
+        assert_eq!(
+            parse_update_repo(Some(" me / scratch ")),
+            ("me".to_owned(), "scratch".to_owned())
+        );
         let def = ("Judd1zzz".to_owned(), "yandex-music-streamdeck".to_owned());
         assert_eq!(parse_update_repo(None), def);
         assert_eq!(parse_update_repo(Some("nope")), def);
         assert_eq!(parse_update_repo(Some("/repo")), def);
         assert_eq!(parse_update_repo(Some("owner/")), def);
         assert_eq!(parse_update_repo(Some("")), def);
+    }
+
+    #[test]
+    fn bridge_watchdog_always_runs_and_rechecks_trust_before_inject() {
+        let src = include_str!("main.rs");
+        let at = src
+            .find("    if let Some(dll) = bridge_dll_path() {\n")
+            .expect("нет запуска сторожа моста");
+        let block = &src[at..];
+        let block = &block[..block.find("\n    }\n").expect("конец блока сторожа моста")];
+        let spawn = block
+            .find("std::thread::Builder::new()")
+            .expect("нет запуска потока сторожа");
+        let before = &block[..spawn];
+        assert_eq!(
+            before.matches('{').count(),
+            before.matches('}').count() + 1,
+            "сторож моста запускается всегда, а не под проверкой подписи на старте: иначе возвращённый .sig не подхватится без перезапуска плагина"
+        );
+        assert!(
+            block.contains("move || ym_model::attest::bridge_trusted(&trust_dll)"),
+            "доверие к dll проверяется перед каждым внедрением: иначе подменённый после старта мост внедрится без проверки"
+        );
+        let call = &block[block
+            .find("run_watchdog(")
+            .expect("нет вызова run_watchdog")..];
+        let trust = call
+            .find("bridge_trusted(&trust_dll)")
+            .expect("нет замыкания доверия в вызове");
+        let wake = call
+            .find("wake.swap(false")
+            .expect("нет замыкания пробуждения в вызове");
+        let stop = call
+            .find("stop.is_cancelled()")
+            .expect("нет замыкания остановки в вызове");
+        assert!(
+            trust < wake && wake < stop,
+            "run_watchdog(dll, interval, trusted, wake_now, stop): у трёх замыканий один тип, перестановку компилятор не поймает"
+        );
+        let launch = src
+            .find("ym_launch::RealOps { launched: Some(inject_wake.clone()) }")
+            .expect("запуск клиента не будит сторожа внедрения");
+        assert!(
+            launch < at,
+            "флаг пробуждения создаётся до сторожа запуска и до потока внедрения"
+        );
     }
 }

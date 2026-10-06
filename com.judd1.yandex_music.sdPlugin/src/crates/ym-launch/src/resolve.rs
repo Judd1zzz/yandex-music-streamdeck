@@ -30,6 +30,14 @@ pub fn fs_path_kind(p: &Path) -> PathKind {
     }
 }
 
+pub fn mac_default_apps(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut out = vec![PathBuf::from("/Applications").join(client_file_name(Os::Mac))];
+    if let Some(h) = home {
+        out.push(h.join("Applications").join(client_file_name(Os::Mac)));
+    }
+    out
+}
+
 pub fn client_file_name(os: Os) -> &'static str {
     match os {
         Os::Windows => "Яндекс Музыка.exe",
@@ -77,6 +85,7 @@ pub fn resolve_launch_target(
     override_path: Option<&str>,
     cached_exe: Option<&Path>,
     local_app_data: Option<&Path>,
+    home: Option<&Path>,
     probe: &dyn Fn(&Path) -> PathKind,
 ) -> Option<LaunchTarget> {
     if let Some(raw) = override_path {
@@ -100,7 +109,10 @@ pub fn resolve_launch_target(
         });
     }
     match os {
-        Os::Mac => Some(LaunchTarget::MacBundle { fallback_app: None }),
+        Os::Mac => {
+            let app = mac_default_apps(home).into_iter().find(|p| probe(p) == PathKind::Dir);
+            Some(LaunchTarget::MacBundle { fallback_app: app })
+        }
         Os::Windows => {
             let def = local_app_data?.join("Programs").join("YandexMusic").join(client_file_name(os));
             (probe(&def) == PathKind::File).then_some(LaunchTarget::Exe(def))
@@ -157,6 +169,7 @@ mod tests {
             Some("D:\\Portable\\Яндекс Музыка.exe"),
             Some(Path::new(WIN_EXE)),
             Some(Path::new("C:\\Users\\u\\AppData\\Local")),
+            None,
             &probe,
         );
         assert_eq!(t, Some(LaunchTarget::Exe(PathBuf::from("D:\\Portable\\Яндекс Музыка.exe"))));
@@ -165,28 +178,28 @@ mod tests {
     #[test]
     fn missing_override_falls_back_to_cache() {
         let probe = kinds(vec![(WIN_EXE, PathKind::File)]);
-        let t = resolve_launch_target(Os::Windows, Some("D:\\gone.exe"), Some(Path::new(WIN_EXE)), None, &probe);
+        let t = resolve_launch_target(Os::Windows, Some("D:\\gone.exe"), Some(Path::new(WIN_EXE)), None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::Exe(PathBuf::from(WIN_EXE))));
     }
 
     #[test]
     fn override_dir_completed_to_exe_on_windows() {
         let probe = kinds(vec![(WIN_DIR, PathKind::Dir), (WIN_EXE, PathKind::File)]);
-        let t = resolve_launch_target(Os::Windows, Some(WIN_DIR), None, None, &probe);
+        let t = resolve_launch_target(Os::Windows, Some(WIN_DIR), None, None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::Exe(Path::new(WIN_DIR).join("Яндекс Музыка.exe"))));
     }
 
     #[test]
     fn override_dir_without_client_falls_back_to_cache() {
         let probe = kinds(vec![("D:\\Empty", PathKind::Dir), (WIN_EXE, PathKind::File)]);
-        let t = resolve_launch_target(Os::Windows, Some("D:\\Empty"), Some(Path::new(WIN_EXE)), None, &probe);
+        let t = resolve_launch_target(Os::Windows, Some("D:\\Empty"), Some(Path::new(WIN_EXE)), None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::Exe(PathBuf::from(WIN_EXE))));
     }
 
     #[test]
     fn cache_dir_is_rejected() {
         let probe = kinds(vec![(WIN_DIR, PathKind::Dir)]);
-        let t = resolve_launch_target(Os::Windows, None, Some(Path::new(WIN_DIR)), None, &probe);
+        let t = resolve_launch_target(Os::Windows, None, Some(Path::new(WIN_DIR)), None, None, &probe);
         assert_eq!(t, None);
     }
 
@@ -199,45 +212,62 @@ mod tests {
             None,
             Some(Path::new("C:\\gone.exe")),
             Some(Path::new("C:\\Users\\u\\AppData\\Local")),
+            None,
             &probe,
         );
         assert!(matches!(t, Some(LaunchTarget::Exe(p)) if p.ends_with("Яндекс Музыка.exe")));
 
-        let t = resolve_launch_target(Os::Windows, None, None, Some(Path::new("C:\\x")), &none_exist);
+        let t = resolve_launch_target(Os::Windows, None, None, Some(Path::new("C:\\x")), None, &none_exist);
         assert_eq!(t, None);
-        let t = resolve_launch_target(Os::Windows, None, None, None, &|_: &Path| PathKind::File);
+        let t = resolve_launch_target(Os::Windows, None, None, None, None, &|_: &Path| PathKind::File);
         assert_eq!(t, None);
     }
 
     #[test]
     fn mac_always_has_bundle_target() {
-        let t = resolve_launch_target(Os::Mac, None, None, None, &none_exist);
+        let t = resolve_launch_target(Os::Mac, None, None, None, None, &none_exist);
         assert_eq!(t, Some(LaunchTarget::MacBundle { fallback_app: None }));
 
         let probe = kinds(vec![(MAC_EXE, PathKind::File)]);
-        let t = resolve_launch_target(Os::Mac, None, Some(Path::new(MAC_EXE)), None, &probe);
+        let t = resolve_launch_target(Os::Mac, None, Some(Path::new(MAC_EXE)), None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::MacBundle { fallback_app: Some(PathBuf::from(MAC_APP)) }));
+    }
+
+    #[test]
+    fn mac_cold_start_finds_default_bundle_so_dylib_can_be_injected() {
+        let probe = kinds(vec![(MAC_APP, PathKind::Dir)]);
+        let t = resolve_launch_target(Os::Mac, None, None, None, None, &probe);
+        assert_eq!(
+            t,
+            Some(LaunchTarget::MacBundle { fallback_app: Some(PathBuf::from(MAC_APP)) }),
+            "без пути к .app мост не инжектится и плагин не подключится"
+        );
+
+        let home_app = "/Users/u/Applications/Яндекс Музыка.app";
+        let probe = kinds(vec![(home_app, PathKind::Dir)]);
+        let t = resolve_launch_target(Os::Mac, None, None, None, Some(Path::new("/Users/u")), &probe);
+        assert_eq!(t, Some(LaunchTarget::MacBundle { fallback_app: Some(PathBuf::from(home_app)) }));
     }
 
     #[test]
     fn mac_override_variants() {
         let probe = kinds(vec![(MAC_APP, PathKind::Dir)]);
-        let t = resolve_launch_target(Os::Mac, Some(MAC_APP), None, None, &probe);
+        let t = resolve_launch_target(Os::Mac, Some(MAC_APP), None, None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::MacApp(PathBuf::from(MAC_APP))));
 
         let probe = kinds(vec![(MAC_EXE, PathKind::File)]);
-        let t = resolve_launch_target(Os::Mac, Some(MAC_EXE), None, None, &probe);
+        let t = resolve_launch_target(Os::Mac, Some(MAC_EXE), None, None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::MacApp(PathBuf::from(MAC_APP))));
 
         let probe = kinds(vec![("/usr/local/bin/ym", PathKind::File)]);
-        let t = resolve_launch_target(Os::Mac, Some("/usr/local/bin/ym"), None, None, &probe);
+        let t = resolve_launch_target(Os::Mac, Some("/usr/local/bin/ym"), None, None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::Exe(PathBuf::from("/usr/local/bin/ym"))));
     }
 
     #[test]
     fn mac_override_plain_dir_completed_to_app() {
         let probe = kinds(vec![("/Applications", PathKind::Dir), (MAC_APP, PathKind::Dir)]);
-        let t = resolve_launch_target(Os::Mac, Some("/Applications"), None, None, &probe);
+        let t = resolve_launch_target(Os::Mac, Some("/Applications"), None, None, None, &probe);
         assert_eq!(t, Some(LaunchTarget::MacApp(PathBuf::from(MAC_APP))));
     }
 
@@ -282,6 +312,15 @@ mod tests {
             check_client_path(Os::Windows, &format!("  {WIN_EXE}  "), &probe),
             PathVerdict::Ok
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn live_mac_cold_start_resolves_installed_bundle() {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let t = resolve_launch_target(Os::Mac, None, None, None, home.as_deref(), &fs_path_kind);
+        println!("холодный старт на этой машине: {t:?}");
+        assert!(matches!(t, Some(LaunchTarget::MacBundle { fallback_app: Some(_) })));
     }
 
     #[test]

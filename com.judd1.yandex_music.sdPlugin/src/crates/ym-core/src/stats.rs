@@ -229,6 +229,10 @@ impl StatsStore {
         }
     }
 
+    pub fn attached(&self) -> bool {
+        self.dir.is_some()
+    }
+
     pub fn attach(&mut self, dir: PathBuf, offset_secs: i32, now: f64) {
         self.offset_secs = offset_secs;
         if let Ok(bytes) = std::fs::read(dir.join("stats.json"))

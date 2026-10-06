@@ -169,6 +169,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridge-xtask"
+version = "2.5.0"
+dependencies = [
+ "ureq",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,6 +345,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec09e802f5081de6157da9a75701d6c713d8dc3ba52571fd4bd25f412644e8a6"
+dependencies = [
+ "ctor-proc-macro",
+ "dtor",
+]
+
+[[package]]
+name = "ctor-proc-macro"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2931af7e13dc045d8e9d26afccc6fa115d64e115c9c84b1166288b46f6782c2"
+
+[[package]]
 name = "ctr"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -450,6 +473,21 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "dtor"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97cbdf2ad6846025e8e25df05171abfb30e3ababa12ee0a0e44b9bbe570633a8"
+dependencies = [
+ "dtor-proc-macro",
+]
+
+[[package]]
+name = "dtor-proc-macro"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7454e41ff9012c00d53cf7f475c5e3afa3b91b7c90568495495e8d9bf47a1055"
 
 [[package]]
 name = "ecdsa"
@@ -847,7 +885,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -1791,7 +1829,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -1908,6 +1946,7 @@ version = "0.23.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b92b125634d9b795e7beca796cc790df15a7fb38323bf3196fda83292d06b1f"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -1966,7 +2005,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sd-host"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "futures-util",
  "sd-protocol",
@@ -1978,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "sd-protocol"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2699,6 +2738,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "ureq"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
+dependencies = [
+ "base64",
+ "log",
+ "once_cell",
+ "rustls",
+ "rustls-pki-types",
+ "url",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2850,6 +2904,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.26.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+dependencies = [
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -3191,7 +3254,7 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "xtask"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "image",
@@ -3204,28 +3267,107 @@ dependencies = [
 ]
 
 [[package]]
-name = "ym-cdp"
-version = "2.4.0"
+name = "ym-bridge-client"
+version = "2.5.0"
 dependencies = [
- "async-trait",
- "futures-util",
- "reqwest",
+ "libc",
+ "thiserror 2.0.18",
+ "tokio",
+ "windows-sys 0.60.2",
+ "ym-bridge-common",
+]
+
+[[package]]
+name = "ym-bridge-common"
+version = "2.5.0"
+dependencies = [
+ "libc",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "ym-bridge-contracts"
+version = "2.5.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ym-bridge-injection"
+version = "2.5.0"
+dependencies = [
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite",
  "tokio-util",
  "tracing",
- "ym-model",
+ "ym-bridge-client",
+ "ym-bridge-session",
+ "ym-cdp-test",
+ "ym-cdp-types",
+]
+
+[[package]]
+name = "ym-bridge-lib"
+version = "2.5.0"
+dependencies = [
+ "ctor",
+ "libc",
+ "windows-sys 0.60.2",
+ "ym-bridge-common",
+]
+
+[[package]]
+name = "ym-bridge-session"
+version = "2.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ym-bridge-client",
+ "ym-cdp-test",
+ "ym-cdp-types",
+]
+
+[[package]]
+name = "ym-cdp-codegen"
+version = "2.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ym-cdp-test"
+version = "2.5.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+ "ym-bridge-client",
+]
+
+[[package]]
+name = "ym-cdp-types"
+version = "2.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "ym-cdp-codegen",
 ]
 
 [[package]]
 name = "ym-core"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "arboard",
  "async-trait",
+ "base64",
  "bitflags 2.13.0",
  "sd-protocol",
  "serde",
@@ -3240,7 +3382,7 @@ dependencies = [
 
 [[package]]
 name = "ym-discord"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "async-trait",
  "discord-rich-presence",
@@ -3251,8 +3393,69 @@ dependencies = [
 ]
 
 [[package]]
+name = "ym-domain-discord"
+version = "2.5.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ym-bridge-contracts",
+ "ym-domain-transport",
+ "ym-plugin-facade",
+]
+
+[[package]]
+name = "ym-domain-likes"
+version = "2.5.0"
+dependencies = [
+ "serde_json",
+ "ym-bridge-contracts",
+ "ym-plugin-facade",
+]
+
+[[package]]
+name = "ym-domain-lyrics"
+version = "2.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "ym-bridge-client",
+ "ym-bridge-session",
+ "ym-cdp-test",
+ "ym-plugin-facade",
+]
+
+[[package]]
+name = "ym-domain-media-meta"
+version = "2.5.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "ym-plugin-facade",
+]
+
+[[package]]
+name = "ym-domain-transport"
+version = "2.5.0"
+dependencies = [
+ "serde_json",
+ "ym-bridge-contracts",
+ "ym-plugin-facade",
+]
+
+[[package]]
+name = "ym-domain-volume"
+version = "2.5.0"
+dependencies = [
+ "serde_json",
+ "ym-bridge-contracts",
+ "ym-plugin-facade",
+]
+
+[[package]]
 name = "ym-download"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3272,34 +3475,45 @@ dependencies = [
 
 [[package]]
 name = "ym-launch"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "async-trait",
- "reqwest",
- "serde_json",
  "sysinfo",
  "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
  "windows-sys 0.61.2",
+ "ym-launcher",
  "ym-model",
 ]
 
 [[package]]
+name = "ym-launcher"
+version = "2.5.0"
+dependencies = [
+ "libc",
+ "tracing",
+ "tracing-subscriber",
+ "windows-sys 0.60.2",
+ "ym-bridge-common",
+]
+
+[[package]]
 name = "ym-model"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "serde",
  "serde_json",
+ "ssh-key",
  "time",
 ]
 
 [[package]]
 name = "ym-plugin"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3311,19 +3525,60 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "ym-cdp",
  "ym-core",
  "ym-discord",
  "ym-download",
  "ym-launch",
+ "ym-launcher",
  "ym-model",
+ "ym-remote-controller",
  "ym-render",
  "ym-update",
 ]
 
 [[package]]
+name = "ym-plugin-facade"
+version = "2.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "ym-bridge-client",
+ "ym-bridge-contracts",
+ "ym-bridge-injection",
+ "ym-bridge-session",
+ "ym-cdp-test",
+ "ym-domain-transport",
+]
+
+[[package]]
+name = "ym-remote"
+version = "2.5.0"
+dependencies = [
+ "ym-bridge-injection",
+ "ym-bridge-session",
+]
+
+[[package]]
+name = "ym-remote-controller"
+version = "2.5.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ym-bridge-injection",
+ "ym-bridge-session",
+ "ym-model",
+ "ym-remote",
+]
+
+[[package]]
 name = "ym-render"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "ab_glyph",
  "base64",
@@ -3336,7 +3591,7 @@ dependencies = [
 
 [[package]]
 name = "ym-update"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -3353,8 +3608,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ym-verify"
+version = "2.5.0"
+dependencies = [
+ "tokio",
+ "ym-domain-likes",
+ "ym-domain-transport",
+ "ym-domain-volume",
+ "ym-plugin-facade",
+]
+
+[[package]]
 name = "ym-ynison"
-version = "2.4.0"
+version = "2.5.0"
 
 [[package]]
 name = "yoke"

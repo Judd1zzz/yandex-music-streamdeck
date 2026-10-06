@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [features]
 default = ["downloads", "self-update"]
-downloads = ["dep:ym-download", "ym-cdp/download-button"]
+downloads = ["dep:ym-download", "ym-remote-controller/download-button"]
 self-update = ["dep:ym-update"]
 
 [dependencies]
@@ -24,12 +24,16 @@ file-rotate.workspace = true
 anyhow.workspace = true
 sd-host.workspace = true
 ym-core.workspace = true
-ym-cdp.workspace = true
+ym-remote-controller.workspace = true
 ym-discord.workspace = true
 ym-download = { workspace = true, optional = true }
 ym-update = { workspace = true, optional = true }
 ym-launch.workspace = true
 ym-render.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+ym-launcher.workspace = true
+ym-model.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,5 @@
 pub mod commands;
 pub mod controller;
-pub mod discovery;
 
 pub use commands::LocalCommand;
 pub use controller::{CdpController, CdpError};

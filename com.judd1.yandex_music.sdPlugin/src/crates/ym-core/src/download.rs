@@ -5,6 +5,8 @@ use ym_model::StateEvent;
 
 use crate::action::Shared;
 
+pub(crate) const NO_CLIENT_TOKEN: &str = "клиент Яндекс Музыки не отдал токен аккаунта — проверьте, что вы вошли в аккаунт в клиенте";
+
 pub async fn run_download(shared: &Arc<Shared>, track_id: String) -> Result<PathBuf, String> {
     if shared.download_begin() {
         shared.publish(StateEvent::Download { active: true });
@@ -28,9 +30,8 @@ async fn download_inner(shared: &Arc<Shared>, track_id: &str) -> Result<PathBuf,
         .cdp
         .oauth_token()
         .await
-        .or_else(|| shared.token())
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| "нет токена".to_owned())?;
+        .ok_or_else(|| NO_CLIENT_TOKEN.to_owned())?;
     let dir_setting = shared.download_path();
     let format = shared.download_format();
     shared
@@ -46,7 +47,7 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::Mutex;
     use tokio::sync::broadcast;
-    use ym_model::{Downloader, StubController};
+    use ym_model::{ActionResult, Downloader, MediaController, MediaState, VolumeAction};
 
     type Calls = Arc<Mutex<Vec<(String, String, String, String)>>>;
 
@@ -74,19 +75,56 @@ mod tests {
         }
     }
 
-    fn shared_with(result: fn() -> anyhow::Result<PathBuf>) -> (Arc<Shared>, Calls) {
+    struct ClientToken(Option<&'static str>);
+
+    #[async_trait]
+    impl MediaController for ClientToken {
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn snapshot(&self) -> MediaState {
+            MediaState::default()
+        }
+        async fn oauth_token(&self) -> Option<String> {
+            self.0.map(str::to_owned)
+        }
+        async fn play_pause(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn next(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn prev(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn toggle_like(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn toggle_dislike(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn toggle_shuffle(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn toggle_repeat(&self) -> ActionResult {
+            ActionResult::default()
+        }
+        async fn change_volume(&self, _action: VolumeAction) -> ActionResult {
+            ActionResult::default()
+        }
+    }
+
+    fn shared_with(token: Option<&'static str>, result: fn() -> anyhow::Result<PathBuf>) -> (Arc<Shared>, Calls) {
         let calls: Calls = Default::default();
         let dl = RecordingDownloader { calls: calls.clone(), result };
         let (bus, _) = broadcast::channel(16);
-        let shared =
-            Shared::wired(bus, Arc::new(StubController), ym_render::Renderers::new(), Arc::new(dl));
+        let shared = Shared::wired(bus, Arc::new(ClientToken(token)), ym_render::Renderers::new(), Arc::new(dl));
         (shared, calls)
     }
 
     #[tokio::test]
     async fn run_download_passes_args_to_port() {
-        let (shared, calls) = shared_with(|| Ok(PathBuf::from("/tmp/t.mp3")));
-        shared.set_token(Some("T".into()));
+        let (shared, calls) = shared_with(Some("T"), || Ok(PathBuf::from("/tmp/t.mp3")));
         shared.set_download_config("/music".into(), "mp3".into());
         let mut bus = shared.subscribe();
 
@@ -103,8 +141,7 @@ mod tests {
     #[tokio::test]
     async fn run_download_maps_port_error_chain() {
         let (shared, _calls) =
-            shared_with(|| Err(anyhow::anyhow!("нет сети").context("скачивание трека")));
-        shared.set_token(Some("T".into()));
+            shared_with(Some("T"), || Err(anyhow::anyhow!("нет сети").context("скачивание трека")));
         let mut bus = shared.subscribe();
 
         let res = run_download(&shared, "42".into()).await;
@@ -115,8 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_download_with_default_stub_errors() {
-        let shared = Shared::with(Arc::new(StubController), ym_render::Renderers::new());
-        shared.set_token(Some("T".into()));
+        let shared = Shared::with(Arc::new(ClientToken(Some("T"))), ym_render::Renderers::new());
         let res = run_download(&shared, "42".into()).await;
         let err = res.unwrap_err();
         assert!(err.contains("загрузчик не подключён"), "получено: {err}");
@@ -124,10 +160,17 @@ mod tests {
 
     #[tokio::test]
     async fn run_download_empty_id_skips_port() {
-        let (shared, calls) = shared_with(|| Ok(PathBuf::new()));
-        shared.set_token(Some("T".into()));
+        let (shared, calls) = shared_with(Some("T"), || Ok(PathBuf::new()));
         let res = run_download(&shared, " ".into()).await;
         assert_eq!(res, Err("пустой track_id".to_owned()));
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_download_without_client_token_names_the_reason_and_skips_port() {
+        let (shared, calls) = shared_with(None, || Ok(PathBuf::new()));
+        let res = run_download(&shared, "42".into()).await;
+        assert_eq!(res, Err(NO_CLIENT_TOKEN.to_owned()));
         assert!(calls.lock().unwrap().is_empty());
     }
 }

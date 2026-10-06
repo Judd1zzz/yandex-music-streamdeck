@@ -5,7 +5,7 @@ members = [
     "crates/sd-host",
     "crates/ym-model",
     "crates/ym-render",
-    "crates/ym-cdp",
+    "crates/ym-remote-controller",
     "crates/ym-ynison",
     "crates/ym-discord",
     "crates/ym-download",
@@ -14,11 +14,32 @@ members = [
     "crates/ym-core",
     "crates/ym-plugin",
     "xtask",
+    "../../../bridge/crates/ym-bridge-common",
+    "../../../bridge/crates/ym-bridge-client",
+    "../../../bridge/crates/ym-bridge-contracts",
+    "../../../bridge/crates/ym-bridge-injection",
+    "../../../bridge/crates/ym-bridge-session",
+    "../../../bridge/crates/ym-bridge-lib",
+    "../../../bridge/crates/ym-cdp-types",
+    "../../../bridge/crates/ym-cdp-codegen",
+    "../../../bridge/crates/ym-cdp-test",
+    "../../../bridge/crates/ym-plugin-facade",
+    "../../../bridge/crates/ym-launcher",
+    "../../../bridge/crates/ym-verify",
+    "../../../bridge/crates/ym-domain-transport",
+    "../../../bridge/crates/ym-domain-volume",
+    "../../../bridge/crates/ym-domain-likes",
+    "../../../bridge/crates/ym-domain-lyrics",
+    "../../../bridge/crates/ym-domain-media-meta",
+    "../../../bridge/crates/ym-domain-discord",
+    "../../../bridge/crates/ym-remote",
+    "../../../bridge/xtask",
 ]
 
 [workspace.package]
-version = "2.4.0"
+version = "2.5.0"
 edition = "2024"
+authors = ["judd1"]
 license-file = "../../LICENSE"
 rust-version = "1.85"
 
@@ -58,13 +79,33 @@ semver = "1"
 self-replace = "1"
 time = { version = "0.3", features = ["local-offset"] }
 tempfile = "3"
+libc = "0.2"
+ctor = "0.4"
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
-# Workspace-internal crates
 sd-protocol = { path = "crates/sd-protocol" }
 sd-host = { path = "crates/sd-host" }
 ym-model = { path = "crates/ym-model" }
 ym-render = { path = "crates/ym-render" }
-ym-cdp = { path = "crates/ym-cdp" }
 ym-ynison = { path = "crates/ym-ynison" }
 ym-discord = { path = "crates/ym-discord" }
 ym-download = { path = "crates/ym-download" }
@@ -72,12 +113,19 @@ ym-update = { path = "crates/ym-update" }
 ym-launch = { path = "crates/ym-launch" }
 ym-core = { path = "crates/ym-core" }
 
+ym-bridge-client = { path = "../../../bridge/crates/ym-bridge-client" }
+ym-bridge-session = { path = "../../../bridge/crates/ym-bridge-session" }
+ym-bridge-injection = { path = "../../../bridge/crates/ym-bridge-injection" }
+ym-remote = { path = "../../../bridge/crates/ym-remote" }
+ym-launcher = { path = "../../../bridge/crates/ym-launcher" }
+ym-remote-controller = { path = "crates/ym-remote-controller" }
+
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
-panic = "abort"
+panic = "unwind"
 
 [profile.release.build-override]
 opt-level = 3

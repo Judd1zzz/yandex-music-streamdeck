@@ -1,0 +1,23 @@
+{
+  "better_info_requests": true,
+  "better_info_playlist_index": true,
+  "better_info_playlist_date": false,
+  "better_info_playlist_more_owner": true,
+  "better_info_playlist_created": true,
+  "better_info_playlist_track_count": true,
+  "better_info_playlist_private": true,
+  "better_info_album_genre": true,
+  "better_info_album_date": true,
+  "better_info_album_track_count": true,
+  "better_info_artist_delta": true,
+  "better_info_artist_description": true,
+  "better_info_artist_likes": true,
+  "better_info_artist_albums": true,
+  "better_info_artist_tracks": true,
+  "better_info_artist_date": true,
+  "better_info_artist_end": true,
+  "better_info_artist_aka": true,
+  "better_info_artist_genres": true,
+  "better_info_artist_country": true,
+  "better_info_artist_ai": false
+}

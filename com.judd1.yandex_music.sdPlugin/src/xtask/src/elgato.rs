@@ -246,6 +246,15 @@ pub fn stage() -> Result<PathBuf> {
     println!("xtask: windows-бинарь для Elgato ← {}", win_src.display());
     std::fs::copy(&win_src, bin_dir.join("ym-plugin.exe")).context("копирование ym-plugin.exe")?;
 
+    for payload in [crate::BRIDGE_MAC, crate::BRIDGE_MAC_SIG, crate::BRIDGE_WIN, crate::BRIDGE_WIN_SIG] {
+        let src = plugin.join("bin").join(payload);
+        if src.is_file() {
+            std::fs::copy(&src, bin_dir.join(payload))
+                .with_context(|| format!("копирование {payload} в elgato staging"))?;
+            make_executable(&bin_dir.join(payload))?;
+        }
+    }
+
     println!("xtask: elgato staging → {}", staging.display());
     Ok(staging)
 }
@@ -261,8 +270,25 @@ fn copy_legal_files(from: &Path, staging: &Path) -> Result<()> {
 
 fn npx_cli(args: &[&str]) -> Result<()> {
     let mut cmd = Command::new("npx");
-    cmd.args(["--yes", "@elgato/cli@latest"]).args(args);
+    cmd.args(["--yes", "@elgato/cli@latest"])
+        .args(args)
+        .env("CI", "1")
+        .env("NO_UPDATE_NOTIFIER", "1");
     run(&mut cmd)
+}
+
+fn transient_network_failure(text: &str) -> bool {
+    const NEEDLES: [&str; 8] = [
+        "fetch failed",
+        "ECONNRESET",
+        "ETIMEDOUT",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+        "getaddrinfo",
+        "socket disconnected",
+        "network socket",
+    ];
+    NEEDLES.iter().any(|n| text.contains(n))
 }
 
 pub fn scrub_ds_store(dir: &Path) -> Result<()> {
@@ -285,7 +311,29 @@ pub fn validate() -> Result<()> {
         bail!("staging не собран: сначала cargo run -p xtask -- elgato stage");
     }
     scrub_ds_store(&staging)?;
-    npx_cli(&["validate", &staging.to_string_lossy()])
+
+    let staging_str = staging.to_string_lossy();
+    let mut cmd = Command::new("npx");
+    cmd.args(["--yes", "@elgato/cli@latest", "validate", staging_str.as_ref()])
+        .env("CI", "1")
+        .env("NO_UPDATE_NOTIFIER", "1");
+    let out = cmd.output().with_context(|| format!("запуск {cmd:?}"))?;
+    print!("{}", String::from_utf8_lossy(&out.stdout));
+    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    if out.status.success() {
+        return Ok(());
+    }
+    let combined =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    if transient_network_failure(&combined) {
+        eprintln!(
+            "xtask: ⚠ elgato validate не смог достучаться до сети (github/CLI self-check) — \
+             пропускаю проверку манифеста, сборка продолжается. Манифест покрыт unit-тестами, \
+             маркетплейс валидирует повторно при загрузке."
+        );
+        return Ok(());
+    }
+    bail!("elgato validate: манифест не прошёл проверку (см. вывод выше)");
 }
 
 pub fn pack() -> Result<()> {
@@ -346,14 +394,23 @@ mod tests {
 
     #[test]
     fn marketplace_marker_is_the_shared_constant_not_a_local_copy() {
-        // маркер ищется внутри собранного .exe: если он разойдётся с тем, что реально
-        // вшивает ym-cdp, сборка Elgato падает с «собран с полным набором фич»
         assert_eq!(MARKETPLACE_MARKER, ym_model::dist::MARKETPLACE_MARKER.as_bytes());
         assert!(
             MARKETPLACE_MARKER.ends_with(b"=true;") && MARKETPLACE_MARKER.starts_with(b"window."),
             "маркер должен быть исполняемым присваиванием, а не голым плейсхолдером — \
              плейсхолдер присутствует в любой сборке и отличать варианты не может"
         );
+    }
+
+    #[test]
+    fn transient_network_failure_classifier() {
+        assert!(transient_network_failure(
+            "Client network socket disconnected before secure TLS connection was established"
+        ));
+        assert!(transient_network_failure("[TypeError: fetch failed]  code: 'ECONNRESET'"));
+        assert!(transient_network_failure("getaddrinfo ENOTFOUND github.com"));
+        assert!(!transient_network_failure("Manifest is invalid: Actions[0].UUID must be lowercase"));
+        assert!(!transient_network_failure("validation failed: missing Icon"));
     }
 
     #[test]

@@ -13,6 +13,7 @@ fn binary_logs_to_file_never_stdout_and_exits_clean() {
 
     let out = Command::new(env!("CARGO_BIN_EXE_ym-plugin"))
         .env("YM_LOG_DIR", dir.path())
+        .env("YM_STATS_DIR", dir.path().join("stats"))
         .env("YM_LOCK_PATH", &lock)
         .env("YM_HOST_BACKOFF_MS", "10")
         .env("YM_CDP_PORT", cdp_free.to_string())
@@ -26,6 +27,10 @@ fn binary_logs_to_file_never_stdout_and_exits_clean() {
         .expect("запуск бинаря");
 
     assert!(out.status.success(), "ненулевой код выхода: {:?}", out.status);
+    assert!(
+        dir.path().join("stats").is_dir(),
+        "каталог статистики берётся из YM_STATS_DIR — тесты не должны писать в настоящий каталог данных ОС"
+    );
     assert!(
         out.stdout.is_empty(),
         "stdout должен быть пуст (Stream Deck резервирует его), а там: {:?}",

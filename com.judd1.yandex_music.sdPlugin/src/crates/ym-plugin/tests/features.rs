@@ -1,18 +1,19 @@
 #[cfg(feature = "downloads")]
 #[test]
-fn injected_api_keeps_download_ui_with_downloads_feature() {
-    assert!(!ym_cdp::INJECTED_API_JS.starts_with(ym_model::dist::MARKETPLACE_MARKER));
-    assert!(ym_cdp::INJECTED_API_JS.contains("_updateDownloadButton"));
+fn remote_bundle_keeps_download_ui_with_downloads_feature() {
+    let m = ym_remote_controller::remote_module();
+    assert!(!m.source.starts_with(ym_model::dist::MARKETPLACE_MARKER));
+    assert!(m.kinds.contains(&"download"), "фича downloads обязана дотянуться до JS-пульта");
 }
 
 #[cfg(not(feature = "downloads"))]
 #[test]
-fn injected_api_disables_download_ui_without_downloads_feature() {
-    assert!(ym_cdp::INJECTED_API_JS.starts_with(ym_model::dist::MARKETPLACE_MARKER));
-
-    let js = ym_cdp::JsHandles::random().injected_api();
+fn remote_bundle_drops_download_ui_without_downloads_feature() {
+    let m = ym_remote_controller::remote_module();
     assert!(
-        !js.contains("__YM_NODL_FLAG__") && !js.contains("__ymNoDownloadUi"),
-        "флаг обязан быть рандомизирован, иначе чужой плагин выключит фичу извне"
+        m.source.starts_with(ym_model::dist::MARKETPLACE_MARKER),
+        "маркетплейс-сборка обязана нести маркер, который xtask ищет внутри .exe"
     );
+    assert!(!m.kinds.contains(&"download"));
+    assert!(!m.source.contains("ym-dl-btn"));
 }

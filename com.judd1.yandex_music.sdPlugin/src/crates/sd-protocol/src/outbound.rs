@@ -102,13 +102,13 @@ mod tests {
             json!({"event":"setSettings","context":"c","payload":{"k":1}})
         );
         assert_eq!(
-            ser(&Outbound::SetGlobalSettings { context: "u".into(), payload: json!({"local_port":9333}) }),
-            json!({"event":"setGlobalSettings","context":"u","payload":{"local_port":9333}})
+            ser(&Outbound::SetGlobalSettings { context: "u".into(), payload: json!({"debug_mode":true}) }),
+            json!({"event":"setGlobalSettings","context":"u","payload":{"debug_mode":true}})
         );
         assert_eq!(ser(&Outbound::GetGlobalSettings { context: "u".into() }), json!({"event":"getGlobalSettings","context":"u"}));
         assert_eq!(
-            ser(&Outbound::SendToPropertyInspector { action: "a".into(), context: "c".into(), payload: json!({"event":"TokenStatus","status":"valid"}) }),
-            json!({"event":"sendToPropertyInspector","action":"a","context":"c","payload":{"event":"TokenStatus","status":"valid"}})
+            ser(&Outbound::SendToPropertyInspector { action: "a".into(), context: "c".into(), payload: json!({"event":"LocalStatus","status":"connected"}) }),
+            json!({"event":"sendToPropertyInspector","action":"a","context":"c","payload":{"event":"LocalStatus","status":"connected"}})
         );
         assert_eq!(ser(&Outbound::ShowOk { context: "c".into() }), json!({"event":"showOk","context":"c"}));
         assert_eq!(ser(&Outbound::ShowAlert { context: "c".into() }), json!({"event":"showAlert","context":"c"}));

@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
 use bitflags::bitflags;
-use sd_protocol::{LocalStatus, LogPayload, Outbound, TokenStatus, UrlPayload};
+use sd_protocol::{LocalStatus, LogPayload, Outbound, UrlPayload};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use ym_model::time::epoch_secs;
-use ym_model::{ControlMode, DiscordConfig, LaunchConfig, PluginSettings, StateEvent, StateKind, TrackData, UpdateCheck};
+use ym_model::{DiscordConfig, LaunchConfig, PluginSettings, StateEvent, StateKind, TrackData, UpdateCheck};
 use ym_render::Renderers;
 
 use ym_model::ports::{MediaController, StubController};
@@ -59,7 +59,6 @@ pub struct Shared {
     pub cdp: Arc<dyn MediaController>,
     pub render: Arc<Renderers>,
     pub downloader: Arc<dyn Downloader>,
-    token: RwLock<Option<String>>,
     discord: watch::Sender<DiscordConfig>,
     launch: watch::Sender<LaunchConfig>,
     any_local: Arc<AtomicBool>,
@@ -99,6 +98,7 @@ struct UpdateState {
     notes: Option<String>,
     url: Option<String>,
     has_update: bool,
+    last_check_ok: Option<bool>,
 }
 
 pub type UpdateChecker = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<UpdateCheck>> + Send>> + Send + Sync>;
@@ -142,7 +142,6 @@ impl Shared {
             cdp,
             render,
             downloader,
-            token: RwLock::new(None),
             discord,
             launch,
             any_local: Arc::new(AtomicBool::new(false)),
@@ -169,15 +168,6 @@ impl Shared {
     }
     pub fn publish(&self, ev: StateEvent) {
         let _ = self.state_bus.send(ev);
-    }
-    pub fn set_token(&self, token: Option<String>) {
-        *self.token.write().expect("token lock") = token;
-    }
-    pub fn has_token(&self) -> bool {
-        self.token.read().expect("token lock").as_deref().is_some_and(|t| !t.is_empty())
-    }
-    pub fn token(&self) -> Option<String> {
-        self.token.read().expect("token lock").clone()
     }
     pub fn set_discord_config(&self, cfg: DiscordConfig) {
         let _ = self.discord.send(cfg);
@@ -245,8 +235,10 @@ impl Shared {
     pub async fn run_update_check(&self) {
         let checker = self.update_checker.read().expect("update checker lock").clone();
         let Some(checker) = checker else { return };
-        if let Some(res) = checker().await {
-            let mut g = self.update.write().expect("update lock");
+        let res = checker().await;
+        let mut g = self.update.write().expect("update lock");
+        g.last_check_ok = Some(res.is_some());
+        if let Some(res) = res {
             g.latest = Some(res.latest);
             g.notes = res.notes;
             g.url = res.url;
@@ -254,8 +246,15 @@ impl Shared {
         }
     }
     pub fn update_info_payload(&self) -> serde_json::Value {
+        let has_checker = self.update_checker.read().expect("update checker lock").is_some();
         let g = self.update.read().expect("update lock");
         let latest = g.latest.clone().or_else(|| g.applied.clone());
+        let status = match (has_checker, g.last_check_ok) {
+            (false, _) => "off",
+            (true, None) => "unchecked",
+            (true, Some(true)) => "ok",
+            (true, Some(false)) => "failed",
+        };
         serde_json::json!({
             "event": "UpdateInfo",
             "currentVersion": g.current,
@@ -263,6 +262,7 @@ impl Shared {
             "releaseNotes": g.notes,
             "pageUrl": g.url,
             "hasUpdate": g.has_update || g.applied.is_some(),
+            "status": status,
         })
     }
     pub fn discord_status(&self) -> Option<String> {
@@ -416,11 +416,10 @@ impl Shared {
     }
     pub fn health_payload(&self) -> serde_json::Value {
         let connected = self.cdp.is_connected();
-        let port = self.cdp.active_port();
         let version = self.current_version();
         let edition = self.edition();
         let launch_ok = self.launch_reason().is_none();
-        let stats_ok = self.log_dir().is_some();
+        let stats_ok = self.stats.lock().expect("stats lock").attached();
         let discord_ok = !matches!(self.discord_status().as_deref(), Some("no_client") | Some("error"));
         let check = |id: &str, ok: bool, detail: String| serde_json::json!({ "id": id, "ok": ok, "detail": detail });
         let checks = serde_json::json!([
@@ -429,7 +428,6 @@ impl Shared {
             check("renderer", true, String::new()),
             check("stats", stats_ok, String::new()),
             check("client", connected, String::new()),
-            check("port", port.is_some(), port.map(|p| p.to_string()).unwrap_or_default()),
             check("launch", launch_ok, String::new()),
             check("discord", discord_ok, String::new()),
             check("version", !version.is_empty(), version.clone()),
@@ -438,10 +436,8 @@ impl Shared {
         serde_json::json!({
             "event": "HealthData",
             "connected": connected,
-            "port": port,
             "version": version,
             "edition": edition,
-            "hasToken": self.has_token(),
             "checks": checks,
         })
     }
@@ -517,33 +513,18 @@ impl ActionCtx {
         })
         .await;
     }
-    pub async fn send_token_status(&self, s: TokenStatus) {
-        self.send_to_pi(sd_protocol::token_status_payload(s)).await;
-    }
     pub async fn send_local_status(&self, s: LocalStatus) {
         let reason = self.shared.launch_reason();
         self.send_to_pi(sd_protocol::local_status_payload(s, reason.as_deref())).await;
     }
 
     pub async fn report_status(&self) {
-        match self.settings().control_mode {
-            ControlMode::Local => {
-                let s = if self.shared.cdp.is_connected() {
-                    LocalStatus::Connected
-                } else {
-                    LocalStatus::Disconnected
-                };
-                self.send_local_status(s).await;
-            }
-            ControlMode::Ynison => {
-                let s = if self.shared.has_token() {
-                    TokenStatus::Offline
-                } else {
-                    TokenStatus::Missing
-                };
-                self.send_token_status(s).await;
-            }
-        }
+        let s = if self.shared.cdp.is_connected() {
+            LocalStatus::Connected
+        } else {
+            LocalStatus::Disconnected
+        };
+        self.send_local_status(s).await;
         if let Some(v) = self.shared.update_notice() {
             self.send_to_pi(sd_protocol::update_notice_payload(&v)).await;
         }

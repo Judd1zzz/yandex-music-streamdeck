@@ -10,3 +10,4 @@ serde_json.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
 time.workspace = true
+ssh-key.workspace = true

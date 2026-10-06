@@ -1,0 +1,11 @@
+{
+  "video_cover_enabled": true,
+  "video_cover_hide_poster": true,
+  "video_cover_brightness": 30,
+  "video_cover_panel_brightness": 50,
+  "video_cover_filter": "",
+  "video_cover_plate_enabled": false,
+  "video_cover_plate_color": "accent",
+  "video_cover_plate_opacity": 25,
+  "video_cover_plate_backdrop": ""
+}

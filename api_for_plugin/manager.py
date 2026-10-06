@@ -92,7 +92,6 @@ class YnisonSession:
             logger.error(f"[{self.token[:4]}..] State handle error: {e}")
 
     async def enrich_and_broadcast(self, state_dict):
-        """Обогащает стейт метаданными и транслирует его повторно, когда данные готовы."""
         try:
             player_state = state_dict.get("player_state", {})
             queue = player_state.get("player_queue", {})
@@ -121,7 +120,6 @@ class YnisonSession:
         self.is_connected = False
 
     async def enrich_state_dict(self, state_dict):
-        """Добавляет в стейт is_liked, is_disliked, имена исполнителей и URI обложек."""
         try:
             player_state = state_dict.get("player_state", {})
             if not player_state: return

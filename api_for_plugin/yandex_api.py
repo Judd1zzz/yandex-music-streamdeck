@@ -19,7 +19,6 @@ class YandexMusicAPI:
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def init(self):
-        """Инициализирует сессию клиента и получает ID пользователя."""
         timeout = aiohttp.ClientTimeout(total=10)
         self._session = aiohttp.ClientSession(
             headers={
@@ -35,7 +34,6 @@ class YandexMusicAPI:
             await self._session.close()
 
     async def _fetch_uid(self):
-        """Получает ID пользователя из статуса аккаунта."""
         try:
             async with self._session.get(f"{self.BASE_URL}/account/status") as resp:
                 logger.info(f"Account Status Check: {resp.status}")
@@ -52,7 +50,6 @@ class YandexMusicAPI:
             logger.error(f"Error fetching UID: {e}")
 
     async def _safe_json(self, resp):
-        """Обрабатывает ответы как обёрнутые в {"result": ...}, так и прямые."""
         try:
             data = await resp.json()
             if isinstance(data, dict) and "result" in data:
@@ -115,12 +112,10 @@ class YandexMusicAPI:
         return await self._like_action(track_id, "remove", "dislikes")
 
     async def get_track(self, track_id: str) -> Optional[dict]:
-        """Получает подробную информацию об одном треке."""
         tracks = await self.get_tracks([track_id])
         return tracks[0] if tracks else None
 
     async def get_tracks(self, track_ids: List[str]) -> List[dict]:
-        """Получает подробную информацию о нескольких треках (POST-запрос, как в оригинальной библиотеке)."""
         if not track_ids: return []
         try:
             url = f"{self.BASE_URL}/tracks"

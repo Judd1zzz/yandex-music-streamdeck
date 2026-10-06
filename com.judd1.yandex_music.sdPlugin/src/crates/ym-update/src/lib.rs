@@ -14,11 +14,17 @@ const REPLACE_RETRIES: usize = 5;
 const REPLACE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const SUMS_NAME: &str = "SHA256SUMS";
 const SUMS_SIG_NAME: &str = "SHA256SUMS.sig";
-const SIG_NAMESPACE: &str = "file";
-const SIGNING_KEYS: &[&str] = &[
-    "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBFXhPYDjtB78qznuYA6ZTDPfOP/zlk4huaokRFcoNXYAAAAB3NzaDpnaXQ=",
-    "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBi2OUX3KX6jyBjfyTNeDi5TeLWQx5vMboxrbMoAsxvmAAAAEnNzaDpyZWxlYXNlLWJhY2t1cA==",
+const RATE_LIMIT_RETRIES: usize = 2;
+const RATE_LIMIT_MAX_WAIT: Duration = Duration::from_secs(65 * 60);
+const STARTUP_RETRY_DELAYS: [Duration; 6] = [
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+    Duration::from_secs(300),
+    Duration::from_secs(600),
 ];
+use ym_model::attest::{SIG_NAMESPACE, SIGNING_KEYS};
 
 fn with_retries_delayed<T>(
     what: &str,
@@ -185,21 +191,41 @@ where
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("чтение zip")?;
     let prefix = format!("{PLUGIN_DIR_NAME}/");
     let binary_rel = format!("bin/{bin_name}");
+
+    let mut items: Vec<(usize, String)> = Vec::new();
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
+        let entry = archive.by_index(i)?;
         let Some(enclosed) = entry.enclosed_name() else { continue };
         let name = enclosed.to_string_lossy().replace('\\', "/");
         let Some(rel) = name.strip_prefix(&prefix) else { continue };
         if rel.is_empty() || entry.is_dir() {
             continue;
         }
+        items.push((i, rel.to_string()));
+    }
+
+    let commit_order = |rel: &str| -> u8 {
+        if rel.starts_with("bin/ym-bridge.") && !rel.ends_with(".sig") {
+            0
+        } else if rel == binary_rel {
+            1
+        } else if rel == "manifest.json" {
+            4
+        } else {
+            3
+        }
+    };
+    items.sort_by_key(|(_, rel)| commit_order(rel));
+
+    for (i, rel) in items {
+        let mut entry = archive.by_index(i)?;
         let mut data = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut data)?;
         if rel == binary_rel {
             on_binary(&data)?;
             continue;
         }
-        let dest = plugin_dir.join(rel);
+        let dest = plugin_dir.join(&rel);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -225,10 +251,27 @@ fn apply_zip(bytes: &[u8], dir: &Path, bin: &str) -> Result<()> {
     })
 }
 
-async fn fetch_latest(client: &reqwest::Client, api_base: &str, owner: &str, repo: &str) -> Result<Release> {
+async fn fetch_latest(client: &reqwest::Client, api_base: &str, owner: &str, repo: &str, current: &str) -> Result<Release> {
     let url = format!("{api_base}/repos/{owner}/{repo}/releases/latest");
-    let v: Value = client.get(url).send().await?.error_for_status()?.json().await?;
-    parse_release(&v)
+    let started = std::time::Instant::now();
+    let resp = client.get(url).send().await?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    if let Some(wait) = rate_limit_wait(resp.status().as_u16(), resp.headers(), now) {
+        return Err(RateLimited(wait).into());
+    }
+    let v: Value = resp.error_for_status()?.json().await?;
+    let rel = parse_release(&v)?;
+    tracing::info!("{}", check_summary(&rel.tag, current, started.elapsed().as_millis()));
+    Ok(rel)
+}
+
+fn check_summary(tag: &str, current: &str, ms: u128) -> String {
+    let latest = tag.trim().trim_start_matches('v');
+    if is_newer(tag, current) {
+        format!("ym-update: доступна {latest} (текущая {current}), ответ GitHub за {ms} мс")
+    } else {
+        format!("ym-update: последняя версия {latest}, обновлений нет (текущая {current}), ответ GitHub за {ms} мс")
+    }
 }
 
 fn cleanup_stale(dir: &Path) {
@@ -254,6 +297,70 @@ fn cleanup_legacy(dir: &Path) {
     }
 }
 
+fn is_transient(e: &anyhow::Error) -> bool {
+    e.chain()
+        .filter_map(|c| c.downcast_ref::<reqwest::Error>())
+        .any(|r| r.is_connect() || r.is_timeout())
+}
+
+#[derive(Debug)]
+struct RateLimited(Duration);
+
+impl std::fmt::Display for RateLimited {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GitHub ограничил число запросов, сброс через {} с", self.0.as_secs())
+    }
+}
+
+impl std::error::Error for RateLimited {}
+
+fn rate_limit_wait(status: u16, headers: &reqwest::header::HeaderMap, now: u64) -> Option<Duration> {
+    if status != 403 && status != 429 {
+        return None;
+    }
+    let num = |k: &str| headers.get(k)?.to_str().ok()?.trim().parse::<u64>().ok();
+    if let Some(s) = num("retry-after") {
+        return Some(Duration::from_secs(s));
+    }
+    if num("x-ratelimit-remaining") == Some(0) {
+        return num("x-ratelimit-reset").map(|reset| Duration::from_secs(reset.saturating_sub(now) + 1));
+    }
+    None
+}
+
+fn rate_limited(e: &anyhow::Error) -> Option<Duration> {
+    e.chain().find_map(|c| c.downcast_ref::<RateLimited>()).map(|r| r.0)
+}
+
+async fn retry_transient<T, F, Fut>(delays: &[Duration], mut op: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut left = delays.iter();
+    let mut limited = RATE_LIMIT_RETRIES;
+    loop {
+        let e = match op().await {
+            Err(e) => e,
+            r => return r,
+        };
+        if is_transient(&e) {
+            let Some(d) = left.next() else { return Err(e) };
+            tracing::info!("ym-update: сеть недоступна ({e:#}), повтор через {} с", d.as_secs());
+            tokio::time::sleep(*d).await;
+        } else if let Some(w) = rate_limited(&e)
+            && limited > 0
+        {
+            limited -= 1;
+            let w = w.min(RATE_LIMIT_MAX_WAIT);
+            tracing::info!("ym-update: {e:#}, повтор через {} с", w.as_secs());
+            tokio::time::sleep(w).await;
+        } else {
+            return Err(e);
+        }
+    }
+}
+
 async fn check_and_apply(owner: &str, repo: &str, current: &str) -> Result<Option<UpdateOutcome>> {
     check_and_apply_at(GITHUB_API, owner, repo, current).await
 }
@@ -264,7 +371,7 @@ async fn check_and_apply_at(api_base: &str, owner: &str, repo: &str, current: &s
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(180))
         .build()?;
-    let rel = fetch_latest(&client, api_base, owner, repo).await?;
+    let rel = fetch_latest(&client, api_base, owner, repo, current).await?;
     if !is_newer(&rel.tag, current) {
         return Ok(None);
     }
@@ -290,22 +397,19 @@ async fn check_and_apply_at(api_base: &str, owner: &str, repo: &str, current: &s
 
 pub async fn run(owner: &str, repo: &str, current: &str) -> Option<UpdateOutcome> {
     if !looks_installed() {
-        tracing::debug!("ym-update: бинарь не в каталоге bin/ — автообновление пропущено");
+        tracing::info!("ym-update: бинарь не в каталоге bin/ — автообновление пропущено");
         return None;
     }
     if let Ok(dir) = plugin_dir() {
         cleanup_stale(&dir);
         cleanup_legacy(&dir);
     }
-    match check_and_apply(owner, repo, current).await {
+    match retry_transient(&STARTUP_RETRY_DELAYS, || check_and_apply(owner, repo, current)).await {
         Ok(Some(o)) => {
             tracing::info!("ym-update: применено обновление {} (вступит в силу при следующем запуске)", o.version);
             Some(o)
         }
-        Ok(None) => {
-            tracing::debug!("ym-update: обновлений нет (текущая {current})");
-            None
-        }
+        Ok(None) => None,
         Err(e) => {
             tracing::warn!("ym-update: {e:#}");
             None
@@ -320,7 +424,7 @@ pub async fn check(owner: &str, repo: &str, current: &str) -> Option<ym_model::U
         .timeout(Duration::from_secs(30))
         .build()
         .ok()?;
-    let rel = match fetch_latest(&client, GITHUB_API, owner, repo).await {
+    let rel = match fetch_latest(&client, GITHUB_API, owner, repo, current).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("ym-update check: {e:#}");
@@ -340,6 +444,7 @@ pub async fn check(owner: &str, repo: &str, current: &str) -> Option<ym_model::U
 mod tests {
     use super::*;
     use std::io::Write as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use zip::write::SimpleFileOptions;
 
@@ -487,6 +592,51 @@ mod tests {
         assert_eq!(&*captured.lock().unwrap(), b"NEWBINARY");
     }
 
+    #[test]
+    fn locked_bridge_leaves_no_partial_install() {
+        let mut buf = Vec::new();
+        {
+            let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let opts = SimpleFileOptions::default();
+            let p = PLUGIN_DIR_NAME;
+            zw.start_file(format!("{p}/manifest.json"), opts).unwrap();
+            zw.write_all(b"NEW-MANIFEST").unwrap();
+            zw.start_file(format!("{p}/static/img/icon.png"), opts).unwrap();
+            zw.write_all(b"NEW-ICON").unwrap();
+            zw.start_file(format!("{p}/bin/ym-bridge.dll"), opts).unwrap();
+            zw.write_all(b"NEW-BRIDGE").unwrap();
+            zw.start_file(format!("{p}/bin/ym-plugin"), opts).unwrap();
+            zw.write_all(b"NEW-BIN").unwrap();
+            zw.finish().unwrap();
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::fs::write(dir.join("manifest.json"), b"OLD-MANIFEST").unwrap();
+        std::fs::create_dir_all(dir.join("static/img")).unwrap();
+        std::fs::write(dir.join("static/img/icon.png"), b"OLD-ICON").unwrap();
+        std::fs::create_dir_all(dir.join("bin/ym-bridge.dll/keep")).unwrap();
+
+        let binary_applied = std::cell::Cell::new(false);
+        let r = apply_zip_with(&buf, dir, "ym-plugin", |_| {
+            binary_applied.set(true);
+            Ok(())
+        });
+
+        assert!(r.is_err(), "замена заблокированного моста должна провалиться");
+        assert_eq!(
+            std::fs::read(dir.join("manifest.json")).unwrap(),
+            b"OLD-MANIFEST",
+            "manifest не меняется при провале моста"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("static/img/icon.png")).unwrap(),
+            b"OLD-ICON",
+            "static не меняется при провале моста"
+        );
+        assert!(!binary_applied.get(), "бинарь не применяется после провала моста");
+    }
+
     #[cfg(unix)]
     #[test]
     fn apply_zip_preserves_executable_bit() {
@@ -558,6 +708,35 @@ mod tests {
     async fn run_returns_none_when_not_installed() {
         assert!(!looks_installed(), "тестовый бинарь не должен выглядеть установленным");
         assert_eq!(run("owner", "repo", "0.0.1").await, None);
+    }
+
+    #[test]
+    fn check_summary_names_verdict_version_and_latency() {
+        assert_eq!(
+            check_summary("v9.9.9", "1.0.0", 412),
+            "ym-update: доступна 9.9.9 (текущая 1.0.0), ответ GitHub за 412 мс"
+        );
+        assert_eq!(
+            check_summary("v9.9.9", "9.9.9", 7),
+            "ym-update: последняя версия 9.9.9, обновлений нет (текущая 9.9.9), ответ GitHub за 7 мс"
+        );
+    }
+
+    #[test]
+    fn answered_check_and_skipped_run_are_logged_at_info() {
+        let src = include_str!("lib.rs");
+        let body = |head: &str| {
+            let f = &src[src.find(head).expect(head)..];
+            &f[..f.find("\n}\n").expect("конец функции")]
+        };
+        assert!(
+            body("async fn fetch_latest(").contains("tracing::info!(\"{}\", check_summary(&rel.tag, current, "),
+            "каждый ответ GitHub обязан оставить строку info с итогом, иначе «проверка прошла» неотличима от «проверка не запускалась»"
+        );
+        assert!(
+            body("pub async fn run(").contains("tracing::info!(\"ym-update: бинарь не в каталоге bin/"),
+            "пропуск автообновления обязан быть виден на уровне info"
+        );
     }
 
     use ssh_key::private::Ed25519Keypair;
@@ -774,5 +953,133 @@ mod tests {
         assert!(required_asset(&rel, SUMS_NAME).is_err());
         assert!(required_asset(&rel, SUMS_SIG_NAME).is_err());
         assert_eq!(required_asset(&rel, "YandexMusicPlugin-darwin-9.9.9.zip").unwrap().url, "z");
+    }
+
+    fn dead_base() -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn startup_retries_network_errors_until_github_answers() {
+        let zip_name = mock_zip_name();
+        let (live, hits) = spawn_mock(|base| {
+            vec![("/repos/o/r/releases/latest".to_owned(), mock_release_json(base, &[&zip_name]))]
+        });
+        let dead = dead_base();
+        let calls = AtomicUsize::new(0);
+        let out = retry_transient(&[Duration::ZERO; 5], || {
+            let base = if calls.fetch_add(1, Ordering::SeqCst) < 3 { dead.clone() } else { live.clone() };
+            async move { check_and_apply_at(&base, "o", "r", "99.0.0").await }
+        })
+        .await
+        .unwrap();
+        assert_eq!(out, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 4, "три сетевых отказа, четвёртая попытка дошла до релиза");
+        assert_eq!(*hits.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn after_network_returns_release_is_fetched_and_verified_once() {
+        let zip_name = mock_zip_name();
+        let zip = b"ZIPBYTES".to_vec();
+        let (sums, sig_pem) = signed_sums(&zip, &zip_name, &soft_key(7));
+        let (live, hits) = spawn_mock(|base| {
+            vec![
+                (
+                    "/repos/o/r/releases/latest".to_owned(),
+                    mock_release_json(base, &[&zip_name, SUMS_NAME, SUMS_SIG_NAME]),
+                ),
+                (format!("/dl/{zip_name}"), zip),
+                (format!("/dl/{SUMS_NAME}"), sums),
+                (format!("/dl/{SUMS_SIG_NAME}"), sig_pem),
+            ]
+        });
+        let dead = dead_base();
+        let calls = AtomicUsize::new(0);
+        let err = retry_transient(&[Duration::ZERO; 5], || {
+            let base = if calls.fetch_add(1, Ordering::SeqCst) < 2 { dead.clone() } else { live.clone() };
+            async move { check_and_apply_at(&base, "o", "r", "1.0.0").await }
+        })
+        .await
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("не соответствует ни одному доверенному ключу"), "{err:#}");
+        assert_eq!(calls.load(Ordering::SeqCst), 3, "отказ подписи не сетевой — повторной загрузки нет");
+        assert_eq!(*hits.lock().unwrap(), 4, "после появления сети релиз скачан целиком и дошёл до проверки подписи");
+    }
+
+    #[tokio::test]
+    async fn startup_retries_give_up_after_schedule() {
+        let dead = dead_base();
+        let calls = AtomicUsize::new(0);
+        let err = retry_transient(&[Duration::ZERO; 2], || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let base = dead.clone();
+            async move { check_and_apply_at(&base, "o", "r", "1.0.0").await }
+        })
+        .await
+        .unwrap_err();
+        assert!(is_transient(&err), "{err:#}");
+        assert_eq!(calls.load(Ordering::SeqCst), 3, "первая попытка и два повтора по графику");
+    }
+
+    #[test]
+    fn rate_limit_wait_reads_retry_after_and_reset_only_for_limit_answers() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let h = |pairs: &[(&'static str, &str)]| {
+            let mut m = HeaderMap::new();
+            for (k, v) in pairs {
+                m.insert(*k, HeaderValue::from_str(v).unwrap());
+            }
+            m
+        };
+        let reset = h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1030")]);
+        assert_eq!(rate_limit_wait(403, &reset, 1000), Some(Duration::from_secs(31)));
+        assert_eq!(rate_limit_wait(429, &h(&[("retry-after", "7")]), 1000), Some(Duration::from_secs(7)));
+        assert_eq!(rate_limit_wait(403, &reset, 2000), Some(Duration::from_secs(1)), "сброс в прошлом — повтор через секунду");
+        assert_eq!(rate_limit_wait(403, &h(&[]), 1000), None, "403 без заголовков лимита — настоящий отказ, не повторяем");
+        assert_eq!(rate_limit_wait(403, &h(&[("x-ratelimit-remaining", "12"), ("x-ratelimit-reset", "1030")]), 1000), None);
+        assert_eq!(rate_limit_wait(200, &h(&[("retry-after", "7")]), 1000), None);
+    }
+
+    #[tokio::test]
+    async fn rate_limited_check_waits_for_reset_and_retries_instead_of_giving_up() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let body = mock_release_json(&base, &[]);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let limited = format!(
+            "HTTP/1.1 403 Forbidden\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: {now}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes();
+        let mut ok = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes();
+        ok.extend_from_slice(&body);
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        std::thread::spawn(move || {
+            for (stream, resp) in listener.incoming().zip([limited, ok]) {
+                let Ok(mut s) = stream else { break };
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(&resp);
+            }
+        });
+        let out = retry_transient(&[], || check_and_apply_at(&base, "o", "r", "99.0.0")).await;
+        assert!(matches!(out, Ok(None)), "после сброса лимита проверка обязана повториться: {:?}", out.err());
+        assert_eq!(hits.load(Ordering::SeqCst), 2, "403 с лимитом и повтор после сброса");
+    }
+
+    #[test]
+    fn startup_run_goes_through_network_retry() {
+        let src = include_str!("lib.rs");
+        let run = &src[src.find("pub async fn run(").expect("нет run")..];
+        let run = &run[..run.find("\n}\n").expect("конец run")];
+        assert!(
+            run.contains("retry_transient(&STARTUP_RETRY_DELAYS, || check_and_apply("),
+            "автоустановка при старте обязана повторять сетевые отказы: без сети при входе в систему обновление молча пропадёт до перезапуска Stream Deck"
+        );
     }
 }

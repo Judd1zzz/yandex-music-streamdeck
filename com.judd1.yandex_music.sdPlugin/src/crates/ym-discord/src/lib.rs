@@ -222,9 +222,11 @@ impl<F: SinkFactory> Service<F> {
     fn on_event(&mut self, ev: StateEvent) {
         match ev {
             StateEvent::Track(t) => {
+                if self.track.as_ref().is_none_or(|old| old.track_id != t.track_id) {
+                    self.paused_since = None;
+                    self.afk_cleared = false;
+                }
                 self.track = Some(t);
-                self.paused_since = None;
-                self.afk_cleared = false;
             }
             StateEvent::Playback(p) => {
                 if p.is_playing {
@@ -249,8 +251,6 @@ impl<F: SinkFactory> Service<F> {
         self.sink_app_id = None;
         self.last_sent = None;
         self.last_send_at = None;
-        self.paused_since = None;
-        self.afk_cleared = false;
     }
 
     fn reconcile(&mut self) {
@@ -616,6 +616,58 @@ mod tests {
         svc.on_event(StateEvent::Connection(false));
         assert!(svc.sink.is_none());
         assert!(log.ops.lock().unwrap().contains(&Op::Clear));
+    }
+
+    fn paused() -> PlaybackData {
+        PlaybackData { is_playing: false, ..playing(30.0, 180.0) }
+    }
+
+    fn cleared_by_afk(log: &Log) -> Service<MockFactory> {
+        let mut svc = service(true, Some("app1"), log);
+        svc.on_event(StateEvent::Track(track()));
+        svc.on_event(StateEvent::Playback(paused()));
+        svc.reconcile();
+        svc.paused_since = Some(Instant::now() - AFK - Duration::from_secs(1));
+        svc.reconcile();
+        assert!(svc.afk_cleared, "пауза дольше AFK обязана убрать presence");
+        svc
+    }
+
+    fn sets_since(log: &Log, mark: usize) -> usize {
+        log.ops.lock().unwrap()[mark..].iter().filter(|o| matches!(o, Op::Set(_))).count()
+    }
+
+    #[test]
+    fn reinjection_burst_does_not_bring_back_presence_cleared_by_afk() {
+        let log = Log::default();
+        let mut svc = cleared_by_afk(&log);
+        let mark = log.ops.lock().unwrap().len();
+        svc.on_event(StateEvent::Connection(false));
+        svc.on_event(StateEvent::Connection(true));
+        let mut same = track();
+        same.cover_url = "https://avatars.yandex.net/get-music-content/y/400x400".to_owned();
+        svc.on_event(StateEvent::Track(same));
+        svc.on_event(StateEvent::Playback(paused()));
+        svc.reconcile();
+        assert_eq!(
+            sets_since(&log, mark),
+            0,
+            "разрыв и полный залп пульта с тем же track_id не действие пользователя — presence после AFK не возвращается"
+        );
+    }
+
+    #[test]
+    fn new_track_after_afk_brings_presence_back() {
+        let log = Log::default();
+        let mut svc = cleared_by_afk(&log);
+        let mark = log.ops.lock().unwrap().len();
+        let mut next = track();
+        next.track_id = "12346".to_owned();
+        next.title = "Alone".to_owned();
+        svc.on_event(StateEvent::Track(next));
+        svc.last_send_at = None;
+        svc.reconcile();
+        assert_eq!(sets_since(&log, mark), 1, "смена трека — действие пользователя, presence возвращается");
     }
 
     #[test]

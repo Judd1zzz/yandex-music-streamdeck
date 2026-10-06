@@ -116,11 +116,11 @@ mod tests {
 
     #[test]
     fn global_settings_carries_token() {
-        let ev = parse(json!({"event":"didReceiveGlobalSettings","payload":{"settings":{"token":"T","local_port":9222}}}));
+        let ev = parse(json!({"event":"didReceiveGlobalSettings","payload":{"settings":{"token":"T","debug_mode":true}}}));
         match ev {
             Inbound::DidReceiveGlobalSettings(g) => {
                 assert_eq!(g.settings()["token"], "T");
-                assert_eq!(g.settings()["local_port"], 9222);
+                assert_eq!(g.settings()["debug_mode"], true);
             }
             other => panic!("ожидался DidReceiveGlobalSettings, {other:?}"),
         }

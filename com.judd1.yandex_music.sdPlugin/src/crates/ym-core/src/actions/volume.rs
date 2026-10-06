@@ -391,15 +391,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn knob_rotate_ynison_alerts_and_no_command() {
-        let (shared, vol, _p) = KnobMock::new(false, 50.0).shared();
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        VolumeKnob::default().on_dial_rotate(&ctx, 1).await;
-        assert!(matches!(rx.recv().await.unwrap(), Outbound::ShowAlert { .. }));
-        assert!(vol.lock().unwrap().is_empty());
-    }
-
-    #[tokio::test]
     async fn knob_interests_are_connection_and_volume() {
         assert_eq!(VolumeKnob::default().interests(), Interests::CONNECTION | Interests::VOLUME);
     }

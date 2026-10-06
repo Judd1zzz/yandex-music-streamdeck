@@ -9,7 +9,6 @@ pub struct ClientProc {
     pub exe: PathBuf,
     pub is_main: bool,
     pub cmd_unreadable: bool,
-    pub debug_port: Option<u16>,
     pub start_time: u64,
 }
 
@@ -38,7 +37,6 @@ pub fn scan(sys: &mut System) -> Vec<ClientProc> {
             exe: exe.to_path_buf(),
             is_main: is_main(&cmd),
             cmd_unreadable: cmd.is_empty(),
-            debug_port: parse_debug_port(&cmd),
             start_time: p.start_time(),
         });
     }
@@ -61,24 +59,8 @@ pub fn is_main(cmd: &[String]) -> bool {
     !cmd.iter().any(|a| a.starts_with("--type="))
 }
 
-pub fn parse_debug_port(cmd: &[String]) -> Option<u16> {
-    let mut it = cmd.iter();
-    while let Some(a) = it.next() {
-        if let Some(v) = a.strip_prefix("--remote-debugging-port=") {
-            return v.parse().ok().filter(|p| *p != 0);
-        }
-        if a == "--remote-debugging-port" {
-            return it.next().and_then(|v| v.parse().ok()).filter(|p| *p != 0);
-        }
-    }
-    None
-}
-
 pub fn main_client(procs: &[ClientProc]) -> MainPick<'_> {
     let mains: Vec<&ClientProc> = procs.iter().filter(|p| p.is_main).collect();
-    if let Some(with_port) = mains.iter().find(|p| p.debug_port.is_some()) {
-        return MainPick::One(with_port);
-    }
     match mains.as_slice() {
         [] => MainPick::NotFound,
         [one] => MainPick::One(one),
@@ -117,14 +99,13 @@ mod tests {
     const MAC_EXE: &str = "/Applications/Яндекс Музыка.app/Contents/MacOS/Яндекс Музыка";
     const WIN_EXE: &str = "C:\\Users\\u\\AppData\\Local\\Programs\\YandexMusic\\Яндекс Музыка.exe";
 
-    fn proc(pid: u32, exe: &str, is_main: bool, debug_port: Option<u16>) -> ClientProc {
+    fn proc(pid: u32, exe: &str, is_main: bool) -> ClientProc {
         ClientProc {
             pid,
             parent: None,
             exe: PathBuf::from(exe),
             is_main,
             cmd_unreadable: false,
-            debug_port,
             start_time: 0,
         }
     }
@@ -136,7 +117,6 @@ mod tests {
             exe: PathBuf::from(exe),
             is_main: true,
             cmd_unreadable: true,
-            debug_port: None,
             start_time: 0,
         }
     }
@@ -180,36 +160,15 @@ mod tests {
     }
 
     #[test]
-    fn debug_port_parsing() {
-        assert_eq!(parse_debug_port(&["--remote-debugging-port=9223".into()]), Some(9223));
-        assert_eq!(
-            parse_debug_port(&["--remote-debugging-port".into(), "9224".into()]),
-            Some(9224)
-        );
-        assert_eq!(parse_debug_port(&["--lang=ru".into()]), None);
-        assert_eq!(parse_debug_port(&["--remote-debugging-port=abc".into()]), None);
-        assert_eq!(parse_debug_port(&["--remote-debugging-port=0".into()]), None);
-        assert_eq!(parse_debug_port(&["--remote-debugging-port=99999".into()]), None);
-        assert_eq!(parse_debug_port(&[]), None);
-    }
+    fn main_client_picks_single_main_and_rejects_ambiguity() {
+        let procs = vec![proc(1, MAC_EXE, true), proc(3, MAC_EXE, false)];
+        assert!(matches!(main_client(&procs), MainPick::One(p) if p.pid == 1));
 
-    #[test]
-    fn main_client_prefers_port_and_rejects_ambiguity() {
-        let procs = vec![
-            proc(1, MAC_EXE, true, None),
-            proc(2, MAC_EXE, true, Some(9222)),
-            proc(3, MAC_EXE, false, None),
-        ];
-        assert!(matches!(main_client(&procs), MainPick::One(p) if p.pid == 2));
-
-        let single = vec![proc(1, MAC_EXE, true, None), proc(3, MAC_EXE, false, None)];
-        assert!(matches!(main_client(&single), MainPick::One(p) if p.pid == 1));
-
-        let none = vec![proc(3, MAC_EXE, false, None)];
+        let none = vec![proc(3, MAC_EXE, false)];
         assert!(matches!(main_client(&none), MainPick::NotFound));
         assert!(matches!(main_client(&[]), MainPick::NotFound));
 
-        let dup = vec![proc(1, MAC_EXE, true, None), proc(2, MAC_EXE, true, None)];
+        let dup = vec![proc(1, MAC_EXE, true), proc(2, MAC_EXE, true)];
         assert!(matches!(main_client(&dup), MainPick::Ambiguous));
     }
 
@@ -240,26 +199,17 @@ mod tests {
         assert!(matches!(main_client(&procs), MainPick::One(p) if p.pid == 100));
     }
 
-    #[tokio::test]
+    #[test]
     #[ignore]
-    async fn live_probe_and_scan() {
-        let st = crate::probe::probe(9222).await;
-        println!("probe(9222) = {st:?}");
+    fn live_scan() {
         let mut sys = System::new();
         let procs = scan(&mut sys);
         println!("найдено процессов клиента: {}", procs.len());
         for p in &procs {
-            println!(
-                "pid={} main={} port={:?} start={} exe={}",
-                p.pid,
-                p.is_main,
-                p.debug_port,
-                p.start_time,
-                p.exe.display()
-            );
+            println!("pid={} main={} start={} exe={}", p.pid, p.is_main, p.start_time, p.exe.display());
         }
         match main_client(&procs) {
-            MainPick::One(m) => println!("главный: pid={} port={:?}", m.pid, m.debug_port),
+            MainPick::One(m) => println!("главный: pid={}", m.pid),
             MainPick::NotFound => println!("главный: не найден"),
             MainPick::Ambiguous => println!("главный: неоднозначно"),
         }

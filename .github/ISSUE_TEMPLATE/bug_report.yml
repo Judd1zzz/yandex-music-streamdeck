@@ -14,6 +14,7 @@ body:
     attributes:
       label: Plugin version / Версия плагина
       options:
+        - "2.5.0"
         - "2.4.0"
         - "2.3.0"
         - "2.2.0"
@@ -42,6 +43,8 @@ body:
       options:
         - "Windows 11"
         - "Windows 10"
+        - "macOS 27"
+        - "macOS 26"
         - "macOS 15 / 14 / 13"
         - "macOS 12"
         - "Other / Другое"
@@ -53,19 +56,7 @@ body:
     attributes:
       label: Stream Deck app version / Версия приложения Stream Deck
       description: "Elgato: Preferences → About. StreamDock/Ajazz: gear icon → Software version. / StreamDock: Шестерёнка → Версия ПО."
-      placeholder: "e.g. Elgato 6.9 / StreamDock 3.10.200"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: control_mode
-    attributes:
-      label: Control mode / Режим управления
-      description: Settings → Control mode. / Настройки → Тип управления.
-      options:
-        - "Local (default) / Local (по умолчанию)"
-        - "Ynison (experimental) / Ynison (экспериментальный)"
-        - "Don't know / Не знаю"
+      placeholder: "e.g. Elgato 7.5 / StreamDock 3.10.200"
     validations:
       required: true
 
@@ -87,7 +78,7 @@ body:
     attributes:
       label: Area / Категория проблемы
       options:
-        - "Connection / CDP (Local mode) — Подключение"
+        - "Connection to the client / bridge — Подключение к клиенту / мост"
         - "Playback control — Управление воспроизведением"
         - "Volume / Knob — Громкость / ручка"
         - "Button rendering / styles — Отрисовка / стили кнопок"
@@ -95,7 +86,9 @@ body:
         - "Download — Скачивание"
         - "Discord Rich Presence"
         - "Updates — Обновления"
-        - "Token / Ynison — Токен / Ynison"
+        - "Control from phone (Ynison) — Управление с телефона"
+        - "Video cover — Видеообложка"
+        - "Page details — «Подробности»"
         - "Settings dashboard — Панель настроек"
         - "Other — Другое"
     validations:

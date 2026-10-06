@@ -134,9 +134,6 @@ class YnisonPlayer:
         await self.redirector.stop_receive()
 
     async def _send_one_off_command(self, payload: dict):
-        """
-        Отправляет команду через временное подключение со случайным Device ID, для избежания ошибок 1006.
-        """
         temp_device_id = str(uuid.uuid4())
         temp_storage = AuthStorage(token=self.storage.token, device_id=temp_device_id)
         
@@ -173,9 +170,6 @@ class YnisonPlayer:
             await temp_redirector.close()
 
     def _update_current_track(self):
-        """
-        Обновляет атрибут _current_track на основе текущего состояния.
-        """
         if not self.state or not self.state.player_state:
             self._current_track = None
             return
@@ -262,9 +256,6 @@ class YnisonPlayer:
 
     @property
     def current_track(self):
-        """
-        Возвращает текущий проигрываемый трек из состояния, или None если ничего не играет.
-        """
         return self._current_track
 
 
@@ -340,9 +331,6 @@ class YnisonPlayer:
         await self._send_one_off_command(payload_dict)
 
     async def play_track(self, track_id: str):
-        """
-        Запускает воспроизведение трека по ID.
-        """
         current_ts = time.time_ns()
         temp_device_id = str(uuid.uuid4())
         

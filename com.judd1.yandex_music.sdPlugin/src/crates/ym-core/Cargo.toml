@@ -12,6 +12,7 @@ tokio = { workspace = true }
 tokio-util.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
+base64.workspace = true
 bitflags.workspace = true
 tracing.workspace = true
 serde.workspace = true

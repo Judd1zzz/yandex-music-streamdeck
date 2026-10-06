@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use sd_protocol::Outbound;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use ym_model::{ActionResult, ControlMode, MediaState, PluginSettings, VolumeData};
+use ym_model::{ActionResult, MediaState, PluginSettings, VolumeData};
 
 use crate::action::{ActionCtx, Shared};
 use ym_model::ports::{MediaController, VolumeAction};
@@ -157,9 +157,6 @@ pub(super) fn backdated(secs: u64) -> std::time::Instant {
         .expect("монотонные часы моложе бекдейта")
 }
 
-pub(super) fn ynison_settings() -> PluginSettings {
-    PluginSettings { control_mode: ControlMode::Ynison, ..Default::default() }
-}
 
 pub(super) fn assert_pi_status(o: &Outbound, event: &str, status: &str) {
     match o {

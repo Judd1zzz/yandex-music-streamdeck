@@ -84,7 +84,6 @@ impl Orchestrator {
                     if let Some(h) = self.actors.remove(&context) {
                         h.cancel.cancel();
                     }
-                    self.recalc_ynison();
                     self.recalc_local();
                 }
             }
@@ -115,7 +114,6 @@ impl Orchestrator {
                         h.control_mode = s.control_mode;
                     }
                     self.forward(&context, ActorMsg::Settings(s)).await;
-                    self.recalc_ynison();
                     self.recalc_local();
                 }
             }
@@ -130,7 +128,6 @@ impl Orchestrator {
                         }
                         self.forward(ctx, ActorMsg::ApplySettings(ap.settings.clone())).await;
                     }
-                    self.recalc_ynison();
                     self.recalc_local();
                 } else if a.payload.get("event").and_then(serde_json::Value::as_str)
                     == Some("check_client_path")
@@ -172,16 +169,24 @@ impl Orchestrator {
             }
 
             Inbound::DidReceiveGlobalSettings(g) => {
-                self.global = GlobalSettings::from_value(&g.settings());
-                self.shared.set_token(self.global.token.clone());
-                if let Some(port) = self.global.local_port {
-                    self.shared.cdp.set_local_port(port);
+                let raw = g.settings();
+                if let Some(saved) = raw.as_object().filter(|o| o.contains_key("token")) {
+                    let mut clean = saved.clone();
+                    clean.remove("token");
+                    tracing::info!("глобальные настройки: сохранённый токен удалён — плагин берёт токен только из клиента");
+                    let _ = self
+                        .host
+                        .send(Outbound::SetGlobalSettings { context: self.plugin_uuid.clone(), payload: clean.into() })
+                        .await;
                 }
+                self.global = GlobalSettings::from_value(&raw);
                 self.shared.set_discord_config(self.global.discord());
                 self.shared.set_launch_config(self.global.launch());
                 self.shared.set_download_config(self.global.download_path.clone(), self.global.download_format.clone());
                 self.shared.set_logs_enabled(self.global.debug_mode);
-                self.recalc_ynison();
+                self.shared.cdp.set_video_cover(self.global.video_cover());
+                self.shared.cdp.set_better_info(ym_model::settings::better_info(&raw));
+                self.shared.cdp.set_ynison_device(self.global.ynison_device());
             }
 
             Inbound::SystemDidWakeUp => {
@@ -205,11 +210,6 @@ impl Orchestrator {
         if let Some(c) = context {
             self.forward(&c, msg).await;
         }
-    }
-
-    fn recalc_ynison(&self) {
-        let needs = self.actors.values().any(|h| h.control_mode == ControlMode::Ynison);
-        tracing::debug!("recalc_ynison: needs={needs} (v1 — клиент не запускается)");
     }
 
     fn recalc_local(&self) {
@@ -251,10 +251,7 @@ impl Orchestrator {
             sd_protocol::LocalStatus::Disconnected
         };
         let reason = self.shared.launch_reason();
-        let mut payload = sd_protocol::local_status_payload(status, reason.as_deref());
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("port".to_owned(), serde_json::json!(self.shared.cdp.active_port()));
-        }
+        let payload = sd_protocol::local_status_payload(status, reason.as_deref());
         self.reply_to_pi(a, payload).await;
     }
 
@@ -604,9 +601,66 @@ mod tests {
                 assert_eq!(payload["event"], "UpdateInfo");
                 assert_eq!(payload["currentVersion"], "2.4.0");
                 assert_eq!(payload["hasUpdate"], false);
+                assert_eq!(payload["status"], "off");
             }
             other => panic!("ожидался UpdateInfo, {other:?}"),
         }
+    }
+
+    async fn check_updates_reply(tx: &mpsc::Sender<Inbound>, rx: &mut mpsc::Receiver<Outbound>) -> serde_json::Value {
+        tx.send(Inbound::SendToPlugin(ActionEvt {
+            context: None,
+            action: None,
+            device: None,
+            payload: json!({
+                "event": "checkUpdates",
+                "reply_action": "com.judd1.yandex_music.action.next",
+                "reply_context": "BTN-1",
+            }),
+        }))
+        .await
+        .unwrap();
+        match next_out(rx).await {
+            Outbound::SendToPropertyInspector { payload, .. } => payload,
+            other => panic!("ожидался UpdateInfo, {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_update_check_is_not_reported_as_up_to_date() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_current_version("2.4.0".into());
+        shared.set_update_checker(Arc::new(|| Box::pin(async { None })));
+        assert_eq!(shared.update_info_payload()["status"], "unchecked");
+        let failed = check_updates_reply(&tx, &mut rx).await;
+        assert_eq!(failed["event"], "UpdateInfo");
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["hasUpdate"], false);
+        shared.set_update_checker(Arc::new(|| {
+            Box::pin(async {
+                Some(ym_model::UpdateCheck { latest: "2.4.0".into(), notes: None, url: None, has_update: false })
+            })
+        }));
+        let ok = check_updates_reply(&tx, &mut rx).await;
+        assert_eq!(ok["status"], "ok");
+        assert_eq!(ok["hasUpdate"], false);
+    }
+
+    #[tokio::test]
+    async fn known_update_survives_a_later_failed_check() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        shared.set_current_version("2.4.0".into());
+        shared.set_update_checker(Arc::new(|| {
+            Box::pin(async {
+                Some(ym_model::UpdateCheck { latest: "2.5.0".into(), notes: None, url: None, has_update: true })
+            })
+        }));
+        check_updates_reply(&tx, &mut rx).await;
+        shared.set_update_checker(Arc::new(|| Box::pin(async { None })));
+        let after = check_updates_reply(&tx, &mut rx).await;
+        assert_eq!(after["status"], "failed");
+        assert_eq!(after["hasUpdate"], true);
+        assert_eq!(after["latestVersion"], "2.5.0");
     }
 
     #[tokio::test]
@@ -684,6 +738,7 @@ mod tests {
                 assert_eq!(payload["latestVersion"], "2.5.0");
                 assert_eq!(payload["releaseNotes"], "• fix");
                 assert_eq!(payload["hasUpdate"], true);
+                assert_eq!(payload["status"], "ok");
             }
             other => panic!("ожидался UpdateInfo, {other:?}"),
         }
@@ -778,7 +833,7 @@ mod tests {
             }
         }
         let saved = saved.expect("ожидался SetSettings");
-        assert_eq!(saved["control_mode"], "ynison");
+        assert_eq!(saved["control_mode"], "local", "сохранённый ynison при записи нормализуется в local");
         assert_eq!(saved["next_style"], "v3");
     }
 
@@ -912,15 +967,6 @@ mod tests {
         panic!("флаг any_local не стал {want}");
     }
 
-    fn settings_evt(context: &str, settings: serde_json::Value) -> Inbound {
-        Inbound::DidReceiveSettings(ActionEvt {
-            context: Some(context.into()),
-            action: None,
-            device: None,
-            payload: json!({ "settings": settings }),
-        })
-    }
-
     #[tokio::test]
     async fn recalc_local_tracks_local_actors() {
         let (tx, mut rx, shared) = run_orch(Interests::all());
@@ -929,14 +975,6 @@ mod tests {
 
         tx.send(appear("c1")).await.unwrap();
         assert_eq!(state_of(&next_out(&mut rx).await), 1);
-        wait_flag(&flag, true).await;
-
-        tx.send(settings_evt("c1", json!({ "control_mode": "ynison" }))).await.unwrap();
-        assert_eq!(state_of(&next_out(&mut rx).await), 2);
-        wait_flag(&flag, false).await;
-
-        tx.send(settings_evt("c1", json!({ "control_mode": "local" }))).await.unwrap();
-        assert_eq!(state_of(&next_out(&mut rx).await), 2);
         wait_flag(&flag, true).await;
 
         tx.send(Inbound::WillDisappear(plain("c1"))).await.unwrap();
@@ -957,7 +995,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn key_down_no_kick_for_ynison_action() {
+    async fn key_down_kicks_for_saved_ynison_action() {
         let (tx, mut rx, shared) = run_orch(Interests::all());
         let (ktx, mut krx) = mpsc::channel(4);
         shared.set_launch_kick(ktx);
@@ -966,7 +1004,7 @@ mod tests {
         assert_eq!(state_of(&next_out(&mut rx).await), 1);
         tx.send(Inbound::KeyDown(plain("c1"))).await.unwrap();
         assert_eq!(state_of(&next_out(&mut rx).await), 9);
-        assert!(krx.try_recv().is_err(), "кик не должен уходить в ynison-режиме");
+        assert!(krx.try_recv().is_ok(), "сохранённый ynison работает как local и будит лаунчер");
     }
 
     fn dial_rotate_evt(context: &str, ticks: i64) -> Inbound {
@@ -1009,7 +1047,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dial_down_no_kick_for_ynison_action() {
+    async fn dial_down_kicks_for_saved_ynison_action() {
         let (tx, mut rx, shared) = run_orch(Interests::all());
         let (ktx, mut krx) = mpsc::channel(4);
         shared.set_launch_kick(ktx);
@@ -1018,7 +1056,7 @@ mod tests {
         assert_eq!(state_of(&next_out(&mut rx).await), 1);
         tx.send(Inbound::DialDown(plain("c1"))).await.unwrap();
         assert_eq!(state_of(&next_out(&mut rx).await), 8);
-        assert!(krx.try_recv().is_err(), "кик не должен уходить в ynison-режиме");
+        assert!(krx.try_recv().is_ok(), "сохранённый ynison работает как local и будит лаунчер");
     }
 
     fn global_settings_evt(settings: serde_json::Value) -> Inbound {
@@ -1026,6 +1064,33 @@ mod tests {
             context: None,
             payload: json!({ "settings": settings }),
         })
+    }
+
+    #[tokio::test]
+    async fn saved_token_is_wiped_from_global_settings_and_other_keys_stay() {
+        let (tx, mut rx, _shared) = run_orch(Interests::all());
+        tx.send(global_settings_evt(json!({ "token": "T", "debug_mode": false, "download_path": "/m", "future_key": [1] })))
+            .await
+            .unwrap();
+        match next_out(&mut rx).await {
+            Outbound::SetGlobalSettings { context, payload } => {
+                assert_eq!(context, "PLUGIN");
+                assert_eq!(payload, json!({ "debug_mode": false, "download_path": "/m", "future_key": [1] }));
+            }
+            o => panic!("ждал SetGlobalSettings без token, {o:?}"),
+        }
+        tx.send(global_settings_evt(json!({ "debug_mode": false }))).await.unwrap();
+        expect_silence(&mut rx).await;
+    }
+
+    #[tokio::test]
+    async fn saved_token_no_longer_feeds_downloads() {
+        let (tx, mut rx, shared) = run_orch(Interests::all());
+        tx.send(global_settings_evt(json!({ "token": "T" }))).await.unwrap();
+        tx.send(appear("c1")).await.unwrap();
+        while !matches!(next_out(&mut rx).await, Outbound::SetState { .. }) {}
+        let err = crate::run_download(&shared, "42".into()).await.unwrap_err();
+        assert!(err.contains("токен"), "без токена из клиента скачивание обязано отказать с причиной, получено: {err}");
     }
 
     fn appear_launch(context: &str) -> Inbound {
@@ -1208,14 +1273,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_connection_replies_local_status_with_port() {
+    async fn check_connection_replies_local_status() {
         let (tx, mut rx, _s) = run_orch(Interests::all());
         tx.send(command("checkConnection", json!({}))).await.unwrap();
         match next_out(&mut rx).await {
             Outbound::SendToPropertyInspector { payload, .. } => {
                 assert_eq!(payload["event"], "LocalStatus");
                 assert_eq!(payload["status"], "disconnected");
-                assert!(payload.as_object().unwrap().contains_key("port"));
+                assert!(!payload.as_object().unwrap().contains_key("port"));
             }
             other => panic!("ожидался LocalStatus, {other:?}"),
         }
@@ -1260,17 +1325,118 @@ mod tests {
                 assert_eq!(payload["version"], "2.5.0");
                 assert_eq!(payload["edition"], "full");
                 assert_eq!(payload["connected"], false);
-                assert_eq!(payload["hasToken"], false);
+                assert!(payload.get("hasToken").is_none(), "ручного токена больше нет");
                 let checks = payload["checks"].as_array().expect("checks array");
-                assert_eq!(checks.len(), 10);
+                assert_eq!(checks.len(), 9);
                 let by = |id: &str| checks.iter().find(|c| c["id"] == id).unwrap_or_else(|| panic!("нет проверки {id}"));
                 assert_eq!(by("host")["ok"], true);
                 assert_eq!(by("version")["ok"], true);
                 assert_eq!(by("version")["detail"], "2.5.0");
                 assert_eq!(by("client")["ok"], false);
-                assert_eq!(by("port")["ok"], false);
+                assert!(checks.iter().all(|c| c["id"] != "port"), "порт больше не диагностируется");
             }
             other => panic!("ожидался HealthData, {other:?}"),
         }
+    }
+
+    #[test]
+    fn health_stats_follows_stats_store_not_log_dir() {
+        let shared = Shared::new();
+        let stats_ok = |s: &Shared| {
+            let h = s.health_payload();
+            h["checks"].as_array().unwrap().iter().find(|c| c["id"] == "stats").unwrap()["ok"].as_bool().unwrap()
+        };
+        shared.set_log_dir(std::env::temp_dir());
+        assert!(!stats_ok(&shared), "каталог логов не означает, что статистика подключена");
+        let dir = tempfile::tempdir().unwrap();
+        shared.set_stats_dir(dir.path().to_path_buf(), 0);
+        assert!(stats_ok(&shared), "хранилище статистики подключено к каталогу");
+    }
+
+    #[tokio::test]
+    async fn global_settings_hand_video_cover_config_to_controller() {
+        use ym_model::ports::{MediaController, VolumeAction};
+        use ym_model::{ActionResult, BetterInfoConfig, MediaState, VideoCoverConfig};
+
+        struct Recording(
+            std::sync::Mutex<Vec<VideoCoverConfig>>,
+            std::sync::Mutex<Vec<BetterInfoConfig>>,
+            std::sync::Mutex<Vec<bool>>,
+        );
+        #[async_trait]
+        impl MediaController for Recording {
+            fn is_connected(&self) -> bool {
+                false
+            }
+            fn snapshot(&self) -> MediaState {
+                MediaState::default()
+            }
+            async fn play_pause(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn next(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn prev(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_like(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_dislike(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_shuffle(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn toggle_repeat(&self) -> ActionResult {
+                ActionResult::default()
+            }
+            async fn change_volume(&self, _a: VolumeAction) -> ActionResult {
+                ActionResult::default()
+            }
+            fn set_video_cover(&self, cfg: VideoCoverConfig) {
+                self.0.lock().unwrap().push(cfg);
+            }
+            fn set_better_info(&self, cfg: BetterInfoConfig) {
+                self.1.lock().unwrap().push(cfg);
+            }
+            fn set_ynison_device(&self, on: bool) {
+                self.2.lock().unwrap().push(on);
+            }
+        }
+
+        let rec = Arc::new(Recording(
+            std::sync::Mutex::new(Vec::new()),
+            std::sync::Mutex::new(Vec::new()),
+            std::sync::Mutex::new(Vec::new()),
+        ));
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, _out_rx) = mpsc::channel(256);
+        let shared = Shared::with(rec.clone(), ym_render::Renderers::new());
+        let factory: ActionFactory =
+            Arc::new(|_uuid: &str| Some(Box::new(TestAction { interests: Interests::all() }) as Box<dyn Action>));
+        tokio::spawn(Orchestrator::new("P".into(), out_tx, shared, factory).run(in_rx));
+
+        in_tx
+            .send(global_settings_evt(
+                json!({ "video_cover_enabled": false, "video_cover_brightness": 70, "better_info_artist_ai": true, "ynison_device_enabled": true }),
+            ))
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            if !rec.0.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let got = rec.0.lock().unwrap().clone();
+        assert_eq!(got.len(), 1, "глобальные настройки передают контроллеру конфиг видеообложки");
+        assert!(!got[0].enabled);
+        assert_eq!(got[0].brightness, 70);
+        let bi = rec.1.lock().unwrap().clone();
+        assert_eq!(bi.len(), 1, "глобальные настройки передают контроллеру флаги BetterInfo");
+        assert_eq!(bi[0].0.get("artist_ai"), Some(&true));
+        assert_eq!(*rec.2.lock().unwrap(), vec![true], "глобальные настройки передают контроллеру флаг Ynison");
     }
 }

@@ -9,11 +9,9 @@ download-button = []
 
 [dependencies]
 ym-model.workspace = true
+ym-bridge-session.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-tokio-tungstenite.workspace = true
-futures-util.workspace = true
-reqwest.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 thiserror.workspace = true

@@ -27,23 +27,6 @@ mod tests {
     use ym_model::MediaState;
 
     #[tokio::test]
-    async fn ynison_report_status_missing_without_token() {
-        let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        ctx.report_status().await;
-        assert_pi_status(&rx.recv().await.unwrap(), "TokenStatus", "missing");
-    }
-
-    #[tokio::test]
-    async fn ynison_report_status_offline_with_token() {
-        let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        shared.set_token(Some("T".into()));
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        ctx.report_status().await;
-        assert_pi_status(&rx.recv().await.unwrap(), "TokenStatus", "offline");
-    }
-
-    #[tokio::test]
     async fn local_report_status_connected_when_cdp_up() {
         let (shared, _c) = MockController { connected: true, state: MediaState::default(), calls: Default::default() }.shared();
         let (ctx, mut rx) = make_ctx(shared);
@@ -115,22 +98,6 @@ mod tests {
             sd_protocol::Outbound::SendToPropertyInspector { payload, .. } => {
                 assert_eq!(payload["event"], "UpdateNotice");
                 assert_eq!(payload["version"], "2.1.3");
-            }
-            other => panic!("ожидался SendToPropertyInspector, {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn report_status_appends_update_notice_ynison() {
-        let (shared, _c) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        shared.apply_update_notice("3.0.0".into(), None, None);
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        ctx.report_status().await;
-        assert_pi_status(&rx.recv().await.unwrap(), "TokenStatus", "missing");
-        match &rx.recv().await.unwrap() {
-            sd_protocol::Outbound::SendToPropertyInspector { payload, .. } => {
-                assert_eq!(payload["event"], "UpdateNotice");
-                assert_eq!(payload["version"], "3.0.0");
             }
             other => panic!("ожидался SendToPropertyInspector, {other:?}"),
         }

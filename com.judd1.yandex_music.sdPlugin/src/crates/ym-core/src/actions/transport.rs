@@ -98,11 +98,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ynison_key_down_alerts_and_runs_no_command() {
-        let (shared, calls) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
+    async fn saved_ynison_mode_runs_commands_like_local() {
+        let (shared, calls) = MockController { connected: true, state: MediaState::default(), calls: Default::default() }.shared();
+        let settings = ym_model::PluginSettings::from_value(&serde_json::json!({ "control_mode": "ynison" }));
+        let (ctx, _rx) = make_ctx_with(shared, settings);
         NextTrack.on_key_down(&ctx).await;
-        assert!(matches!(rx.recv().await.unwrap(), Outbound::ShowAlert { .. }));
-        assert!(calls.lock().unwrap().is_empty(), "команда не должна выполняться в ynison v1");
+        assert_eq!(*calls.lock().unwrap(), ["next"], "сохранённый control_mode=ynison обязан работать как local");
     }
 }

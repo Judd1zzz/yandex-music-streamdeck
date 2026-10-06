@@ -17,28 +17,11 @@
             <span data-i18n="btn_open_dashboard">Open settings dashboard</span>
         </button>
 
-        <div id="control_mode_settings">
-             <div class="sdpi-item" type="group">
-                <div class="sdpi-item-label"><span data-i18n="control_mode_label">Control mode</span> <span id="local_status_indicator" class="status-indicator">...</span></div>
-                <div class="sdpi-item-value">
-                    <div class="custom-select">
-                        <div class="select-selected" id="control_mode_selected">Local</div>
-                        <div class="select-items select-hide" id="control_mode_items">
-                            <div data-value="local" data-i18n="opt_mode_local">Local (this device)</div>
-                            <div data-value="ynison" data-i18n="opt_mode_ynison">Ynison (remote)</div>
-                        </div>
-                    </div>
-                </div>
+        <div id="client_status">
+            <div class="sdpi-item" type="group">
+                <div class="sdpi-item-label"><span data-i18n="client_status_label">Yandex Music client</span> <span id="local_status_indicator" class="status-indicator">...</span></div>
             </div>
             <div class="pi-hint pi-status-reason hidden" id="local_status_reason"></div>
-             <div class="sdpi-item">
-                                <div class="sdpi-item-value pi-row-spread">
-                    <div class="pi-hint pi-hint-narrow" id="mode_description">
-                        Controls the client on this computer
-                    </div>
-                    <button class="btn-secondary" id="btn_apply_all" onclick="applyModeToAll()" data-i18n="btn_apply_all">Apply to all</button>
-                </div>
-            </div>
         </div>
 
         <hr>
@@ -310,29 +293,9 @@
         </div>
 
         <div class="sdpi-item">
-            <div class="info pi-info-note" data-i18n="settings_note">Global settings (connection, Discord, download, language, account) are in the dashboard.</div>
+            <div class="info pi-info-note" data-i18n="settings_note">Settings are saved immediately</div>
         </div>
     </div>
-
-    <div id="ynison_modal" class="modal-overlay hidden">
-        <div class="modal-card">
-            <div class="modal-title" data-i18n="ynison_title">⚠️ Ynison — a mode for enthusiasts</div>
-            <div class="modal-text">
-                <ul>
-                    <li data-i18n="ynison_li1">requires a separately running local API server (api_for_plugin) and a token;</li>
-                    <li data-i18n="ynison_li2">Yandex blocks some commands for desktop — track switching may not work;</li>
-                    <li data-i18n="ynison_li3">in this plugin version Ynison support is limited (the Python version has it in full).</li>
-                </ul>
-                <div><span class="pi-update-link" id="ynison_repo_link" data-i18n="ynison_link">How to run api_for_plugin — guide on GitHub</span></div>
-            </div>
-            <div class="modal-buttons">
-                <button class="btn-secondary" id="ynison_cancel" data-i18n="btn_cancel">Cancel</button>
-                <button class="btn-secondary btn-accent" id="ynison_confirm" data-i18n="btn_ynison_confirm">I understand, enable</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="pi_toast" class="toast hidden"></div>
 
     <script src="js/inspector.js"></script>
 </body>

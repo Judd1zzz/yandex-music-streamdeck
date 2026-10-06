@@ -3,23 +3,10 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TokenStatus {
-    Valid,
-    Invalid,
-    Missing,
-    Offline,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
 pub enum LocalStatus {
     Connected,
     Disconnected,
     Loading,
-}
-
-pub fn token_status_payload(status: TokenStatus) -> Value {
-    serde_json::json!({ "event": "TokenStatus", "status": status })
 }
 
 pub fn local_status_payload(status: LocalStatus, reason: Option<&str>) -> Value {
@@ -63,8 +50,6 @@ mod tests {
 
     #[test]
     fn status_payloads_use_lowercase_strings() {
-        assert_eq!(token_status_payload(TokenStatus::Valid), json!({"event":"TokenStatus","status":"valid"}));
-        assert_eq!(token_status_payload(TokenStatus::Offline), json!({"event":"TokenStatus","status":"offline"}));
         assert_eq!(
             local_status_payload(LocalStatus::Connected, None),
             json!({"event":"LocalStatus","status":"connected"})

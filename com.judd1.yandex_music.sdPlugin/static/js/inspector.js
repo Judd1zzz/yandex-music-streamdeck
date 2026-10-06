@@ -5,26 +5,20 @@ var pluginUUID = null;
 var settings = {};
 var globalSettings = {};
 var globalsReady = false;
-var toastTimer = null;
 var piLang = "en";
 var lastLocalStatus = null;
-var lastTokenStatus = null;
 var lastLocalReason = "";
 var lastUpdateVersion = "";
 var lastDiscordStatus = null;
 
 var I18N = {
     en: {
-        control_mode_label: "Control mode",
-        opt_mode_local: "Local (this device)",
-        opt_mode_ynison: "Ynison (remote)",
-        btn_apply_all: "Apply to all",
-        port_label: "Port",
+        client_status_label: "Yandex Music client",
         client_label: "Client",
-        autofix_label: "Launch/relaunch the client with the debug port",
+        autofix_label: "Launch/relaunch the client automatically",
         client_path_label: "Client path",
         ph_client_path: "Empty — auto-detect",
-        autofix_hint: "The plugin finds the Yandex Music client on its own and relaunches it with the required flag when needed. Set the path only if the client is installed in a non-standard location.",
+        autofix_hint: "The plugin finds the Yandex Music client on its own. Set the path only if the client is installed in a non-standard location.",
         info_elements_label: "Displayed elements",
         show_cover_label: "Cover art",
         show_title_label: "Track title",
@@ -39,9 +33,6 @@ var I18N = {
         knob_press_label: "Knob press",
         opt_knob_mute: "Mute (toggle sound)",
         knob_step_label: "Step per tick, %",
-        account_label: "Account",
-        btn_update_token: "Update token",
-        token_info: "Click to refresh the authorization session",
         discord_rpc_label: "Rich Presence (current track in your profile)",
         ph_discord_app: "Empty — built-in application",
         discord_hint: "Leave empty to use the built-in application. A custom ID is only needed if you want a custom name/icon.",
@@ -51,17 +42,6 @@ var I18N = {
         lang_label: "Language",
         settings_note: "Settings are saved immediately",
         btn_open_dashboard: "Open settings dashboard",
-        ynison_title: "⚠️ Ynison — a mode for enthusiasts",
-        ynison_li1: "requires a separately running local API server (api_for_plugin) and a token;",
-        ynison_li2: "Yandex blocks some commands for desktop — track switching may not work;",
-        ynison_li3: "in this plugin version Ynison support is limited (the Python version has it in full).",
-        btn_cancel: "Cancel",
-        btn_ynison_confirm: "I understand, enable",
-        ynison_link: "How to run api_for_plugin — guide on GitHub",
-        toast_applied_all: "Mode applied to all buttons",
-        toast_no_connection: "No connection to the plugin",
-        mode_desc_local: "Controls the client on this computer",
-        mode_desc_ynison: "Remote control via the ynison protocol (beta)",
         path_ok: "✓ Client found",
         path_ok_dir: "Folder given — {file} will be used",
         path_missing: "Path does not exist",
@@ -72,22 +52,20 @@ var I18N = {
         status_loading: "LOADING...",
         update_notice: "🔄 Update {v} installed — restart Stream Deck. ",
         whats_new: "What's new",
-        reason_port_busy: "Port {port} is taken by another application — set a different port in the settings",
+        reason_bridge_missing: "The bridge library isn't next to the plugin — antivirus may have quarantined it. Restore the file or reinstall the plugin from the release archive",
+        reason_bridge_untrusted: "The bridge library's signature didn't verify — reinstall the plugin from the release archive",
+        reason_bridge_arch_mismatch: "The bridge library has no slice for this Mac's processor — the plugin runs without control until a matching build is installed",
         reason_client_elevated: "The client is running as administrator — the plugin cannot control it. Untick “Run this program as an administrator” in the client shortcut properties",
         reason_elevation_declined: "The administrator rights request was declined — press any plugin button to try again",
         reason_client_not_found: "Yandex Music client not found — install it from music.yandex.ru/download or set the path in the settings"
     },
     ru: {
-        control_mode_label: "Тип управления",
-        opt_mode_local: "Local (это устройство)",
-        opt_mode_ynison: "Ynison (удаленно)",
-        btn_apply_all: "Применить ко всем",
-        port_label: "Порт",
+        client_status_label: "Клиент Яндекс Музыки",
         client_label: "Клиент",
-        autofix_label: "Запускать/перезапускать клиент с портом отладки",
+        autofix_label: "Запускать/перезапускать клиент автоматически",
         client_path_label: "Путь к клиенту",
         ph_client_path: "Пусто — автоопределение",
-        autofix_hint: "Плагин сам находит клиент Яндекс Музыки и при необходимости перезапускает его с нужным флагом. Путь указывайте, только если клиент установлен в нестандартное место.",
+        autofix_hint: "Плагин сам находит клиент Яндекс Музыки. Путь указывайте, только если клиент установлен в нестандартное место.",
         info_elements_label: "Отображаемые элементы",
         show_cover_label: "Обложка",
         show_title_label: "Название трека",
@@ -102,9 +80,6 @@ var I18N = {
         knob_press_label: "Нажатие крутилки",
         opt_knob_mute: "Mute (выкл/вкл звук)",
         knob_step_label: "Шаг за тик, %",
-        account_label: "Аккаунт",
-        btn_update_token: "Обновить токен",
-        token_info: "Нажмите, чтобы обновить сессию авторизации",
         discord_rpc_label: "Rich Presence (текущий трек в профиле)",
         ph_discord_app: "Пусто — встроенное приложение",
         discord_hint: "Оставьте пустым — используется встроенное приложение. Свой ID нужен, только если хотите отдельное имя/иконку.",
@@ -114,17 +89,6 @@ var I18N = {
         lang_label: "Язык",
         settings_note: "Настройки сохраняются сразу",
         btn_open_dashboard: "Открыть панель настроек",
-        ynison_title: "⚠️ Ynison — режим для энтузиастов",
-        ynison_li1: "нужен отдельно запущенный локальный API-сервер (api_for_plugin) и токен;",
-        ynison_li2: "Яндекс блокирует часть команд для ПК — переключение треков может не работать;",
-        ynison_li3: "в этой версии плагина Ynison работает ограниченно (полноценно — в Python-версии).",
-        btn_cancel: "Отмена",
-        btn_ynison_confirm: "Я осознаю, включить",
-        ynison_link: "Как запустить api_for_plugin — инструкция на GitHub",
-        toast_applied_all: "Режим применён ко всем кнопкам",
-        toast_no_connection: "Нет связи с плагином",
-        mode_desc_local: "Управление клиентом на этом компьютере",
-        mode_desc_ynison: "Удаленное управление через протокол ynison (бета)",
         path_ok: "✓ Клиент найден",
         path_ok_dir: "Указана папка — будет использован {file}",
         path_missing: "Путь не существует",
@@ -135,7 +99,9 @@ var I18N = {
         status_loading: "ЗАГРУЗКА...",
         update_notice: "🔄 Установлено обновление {v} — перезапустите Stream Deck. ",
         whats_new: "Что нового",
-        reason_port_busy: "Порт {port} занят другим приложением — укажите другой порт в настройках",
+        reason_bridge_missing: "Рядом с плагином нет библиотеки-моста — возможно, её убрал в карантин антивирус. Восстановите файл или переустановите плагин из архива релиза",
+        reason_bridge_untrusted: "Подпись библиотеки-моста не сошлась — переустановите плагин из архива релиза",
+        reason_bridge_arch_mismatch: "В библиотеке-мосте нет среза под процессор этого Mac — до установки подходящей сборки плагин работает без управления",
         reason_client_elevated: "Клиент запущен от имени администратора — плагин не может им управлять. Снимите галочку «Запускать эту программу от имени администратора» в свойствах ярлыка клиента",
         reason_elevation_declined: "Запрос прав администратора отклонён — нажмите любую кнопку плагина, чтобы попробовать снова",
         reason_client_not_found: "Клиент Яндекс Музыки не найден — установите его с music.yandex.ru/download или укажите путь в настройках"
@@ -170,7 +136,6 @@ function resyncSelectLabels() {
 }
 
 function rerenderDynamicTexts() {
-    updateModeUI(settings.control_mode);
     if (lastLocalStatus) updateStatusIndicator("local_status_indicator", lastLocalStatus);
     updateLocalReason(lastLocalReason);
     if (lastUpdateVersion) renderUpdateNotice(lastUpdateVersion);
@@ -189,15 +154,6 @@ function applyLanguage(lang) {
     rerenderDynamicTexts();
 }
 
-function showToast(text) {
-    const el = document.getElementById("pi_toast");
-    if (!el) return;
-    el.textContent = text;
-    el.classList.remove("hidden");
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function() { el.classList.add("hidden"); }, 2500);
-}
-
 function updateKnobStep() {
     const input = document.getElementById("knob_step_input");
     let step = parseInt(input.value, 10);
@@ -214,32 +170,7 @@ function updateCheckbox(id, settingKey) {
      updateSettings();
 }
 
-function applyModeToAll() {
-     if (websocket && websocket.readyState === 1) {
-        var json = {
-            "event": "sendToPlugin",
-            "context": uuid,
-            "payload": {
-                "event": "applySettingsToAll",
-                "settings": {
-                    "control_mode": settings.control_mode
-                }
-            }
-        };
-        websocket.send(JSON.stringify(json));
-        showToast(t("toast_applied_all"));
-    } else {
-        showToast(t("toast_no_connection"));
-    }
-}
-
-function updateModeUI(mode) {
-    const desc = document.getElementById("mode_description");
-    const cleanMode = (mode || "local").toString().trim().toLowerCase();
-    if (desc) desc.textContent = cleanMode === "local" ? t("mode_desc_local") : t("mode_desc_ynison");
-}
-
-function initSelect(selectedId, itemsId, write, callback, guard) {
+function initSelect(selectedId, itemsId, write, callback) {
     const selected = document.getElementById(selectedId);
     const items = document.getElementById(itemsId);
     if (!selected || !items) return;
@@ -259,63 +190,21 @@ function initSelect(selectedId, itemsId, write, callback, guard) {
             items.classList.add("select-hide");
             selected.classList.remove("select-arrow-active");
 
-            const apply = function() {
-                selected.textContent = clicked.textContent;
-                options.forEach(opt => opt.classList.remove("same-as-selected"));
-                clicked.classList.add("same-as-selected");
-                write(val);
-                if (callback) callback(val);
-            };
-
-            if (guard && !guard(val, apply)) return;
-            apply();
+            selected.textContent = clicked.textContent;
+            options.forEach(opt => opt.classList.remove("same-as-selected"));
+            clicked.classList.add("same-as-selected");
+            write(val);
+            if (callback) callback(val);
         });
     });
 }
 
-function initCustomSelect(selectedId, itemsId, settingKey, callback, guard) {
+function initCustomSelect(selectedId, itemsId, settingKey, callback) {
     initSelect(selectedId, itemsId, function(val) {
         settings[settingKey] = val;
         updateSettings();
-    }, callback, guard);
+    }, callback);
 }
-
-function ynisonGuard(val, apply) {
-    if (val !== "ynison" || settings.control_mode === "ynison") return true;
-    showYnisonModal(apply);
-    return false;
-}
-
-function showYnisonModal(onConfirm) {
-    const modal = document.getElementById("ynison_modal");
-    if (!modal) return;
-    modal.classList.remove("hidden");
-    const close = function() {
-        modal.classList.add("hidden");
-        document.removeEventListener("keydown", onKey);
-    };
-    const onKey = function(e) {
-        if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    const cancel = document.getElementById("ynison_cancel");
-    cancel.onclick = close;
-    cancel.focus();
-    document.getElementById("ynison_confirm").onclick = function() {
-        close();
-        onConfirm();
-    };
-}
-
-(function initYnisonRepoLink() {
-    var link = document.getElementById("ynison_repo_link");
-    if (!link) return;
-    link.addEventListener("click", function() {
-        openExternal(piLang === "ru"
-            ? "https://github.com/Judd1zzz/yandex-music-streamdeck/blob/main/README_RU.md#режим-ynison-экспериментальный"
-            : "https://github.com/Judd1zzz/yandex-music-streamdeck#ynison-mode-experimental");
-    });
-})();
 
 function closeAllSelect(elmnt) {
     const allItems = document.querySelectorAll(".select-items");
@@ -359,15 +248,13 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
             }
         }, 2000);
         
-        initCustomSelect("control_mode_selected", "control_mode_items", "control_mode", updateModeUI, ynisonGuard);
-
         const rawAction = String(actionInfo.action || '');
         const action = rawAction.replace(/_/g, '-');
         if (action === "com.judd1.yandex-music.action.info") {
             document.getElementById('info_settings').classList.remove('hidden');
             initCustomSelect("info_press_selected", "info_press_items", "info_press");
         } else if (action === "com.judd1.yandex-music.action.launch") {
-            document.getElementById('control_mode_settings').classList.add('hidden');
+            document.getElementById('client_status').classList.add('hidden');
         } else if (action === "com.judd1.yandex-music.action.like") {
             document.getElementById('like_settings').classList.remove('hidden');
             initCustomSelect("like_style_selected", "like_style_items", "like_style");
@@ -413,11 +300,8 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         if (actionInfo.payload.settings) {
             settings = actionInfo.payload.settings;
         }
-        
-        if (!settings.control_mode) settings.control_mode = "local";
-        
+
         syncUIRomSettings();
-        updateModeUI(settings.control_mode);
     };
 
     websocket.onmessage = function(evt) {
@@ -425,18 +309,15 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
         if (jsonObj.event === 'didReceiveSettings') {
             settings = jsonObj.payload.settings;
             syncUIRomSettings();
-            updateModeUI(settings.control_mode);
         } else if (jsonObj.event === 'didReceiveGlobalSettings') {
             globalSettings = jsonObj.payload.settings || {};
+            delete globalSettings.token;
             globalsReady = true;
             applyLanguage(globalSettings.pi_language === "ru" ? "ru" : "en");
             postToDashboard("globalSettings", globalSettings);
         } else if (jsonObj.event === 'sendToPropertyInspector') {
             var payload = jsonObj.payload;
-            if (payload.event === "TokenStatus") {
-                lastTokenStatus = payload.status;
-                updateLocalReason("");
-            } else if (payload.event === "LocalStatus") {
+            if (payload.event === "LocalStatus") {
                 lastLocalStatus = payload.status;
                 updateStatusIndicator("local_status_indicator", payload.status);
                 updateLocalReason(payload.status === "connected" ? "" : payload.reason);
@@ -479,8 +360,7 @@ function localizeReason(reason) {
     const raw = (reason || "").toString();
     if (!raw) return "";
     if (I18N.en["reason_" + raw] != null) {
-        const port = globalSettings.local_port || 9222;
-        return t("reason_" + raw, { port: port });
+        return t("reason_" + raw);
     }
     return raw;
 }
@@ -556,7 +436,6 @@ function syncUIRomSettings() {
     syncSelect("prev_style", "prev_style_items", "prev_style_selected");
     syncSelect("play_style", "play_style_items", "play_style_selected");
     syncSelect("progress_mode", "progress_mode_items", "progress_mode_selected");
-    syncSelect("control_mode", "control_mode_items", "control_mode_selected");
     syncSelect("mute_style", "mute_style_items", "mute_style_selected");
     syncSelect("volume_style", "volume_style_items", "volume_style_selected");
     syncSelect("download_style", "download_style_items", "download_style_selected");
@@ -587,6 +466,7 @@ function updateSettings() {
 
 function saveGlobalSettings() {
     if (!globalsReady) return;
+    delete globalSettings.token;
     if (websocket && websocket.readyState === 1) {
         var json = {
             "event": "setGlobalSettings",
@@ -607,7 +487,6 @@ function collectSnapshot() {
         settings: settings,
         localStatus: lastLocalStatus,
         localReason: lastLocalReason,
-        tokenStatus: lastTokenStatus,
         updateVersion: lastUpdateVersion,
         pathCheck: null,
         discord: lastDiscordStatus

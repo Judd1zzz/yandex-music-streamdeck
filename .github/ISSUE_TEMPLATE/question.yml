@@ -25,4 +25,4 @@ body:
     id: version
     attributes:
       label: Plugin version / Версия плагина
-      placeholder: "2.4.0"
+      placeholder: "2.5.0"

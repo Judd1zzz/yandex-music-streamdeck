@@ -20,7 +20,11 @@ impl Action for Shuffle {
     }
     async fn on_key_down(&mut self, cx: &ActionCtx) {
         if let Some(c) = require_local(cx).await {
-            let _ = c.toggle_shuffle().await;
+            let r = c.toggle_shuffle().await;
+            if !r.success {
+                tracing::debug!("shuffle не применён: {:?}", r.error);
+                cx.show_alert().await;
+            }
         }
     }
 }
@@ -37,7 +41,11 @@ impl Action for Repeat {
     }
     async fn on_key_down(&mut self, cx: &ActionCtx) {
         if let Some(c) = require_local(cx).await {
-            let _ = c.toggle_repeat().await;
+            let r = c.toggle_repeat().await;
+            if !r.success {
+                tracing::debug!("repeat не применён: {:?}", r.error);
+                cx.show_alert().await;
+            }
         }
     }
 }
@@ -98,19 +106,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shuffle_ynison_alerts_without_command() {
-        let (shared, calls) =
-            MockController { connected: true, state: MediaState::default(), calls: Default::default() }.shared();
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        Shuffle.on_key_down(&ctx).await;
-        assert!(calls.lock().unwrap().is_empty());
-        match rx.recv().await.unwrap() {
-            Outbound::ShowAlert { .. } => {}
-            o => panic!("ждал ShowAlert, {o:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn repeat_mode_two_sets_state_and_image() {
         let state = MediaState { repeat: RepeatData { mode: 2 }, ..Default::default() };
         let (shared, _c) = MockController { connected: true, state, calls: Default::default() }.shared();
@@ -141,6 +136,28 @@ mod tests {
             o => panic!("ждал сразу SetImage (без SetState), {o:?}"),
         }
         assert!(try_next(&mut rx).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn key_down_alerts_when_command_reports_failure() {
+        use std::sync::Arc;
+        use crate::action::Shared;
+
+        let shared = Shared::with(Arc::new(ym_model::ports::StubController), ym_render::Renderers::new());
+        let (ctx, mut rx) = make_ctx(shared);
+        Shuffle.on_key_down(&ctx).await;
+        match rx.recv().await.unwrap() {
+            Outbound::ShowAlert { .. } => {}
+            o => panic!("ждал ShowAlert на неуспешной команде, {o:?}"),
+        }
+
+        let shared = Shared::with(Arc::new(ym_model::ports::StubController), ym_render::Renderers::new());
+        let (ctx, mut rx) = make_ctx(shared);
+        Repeat.on_key_down(&ctx).await;
+        match rx.recv().await.unwrap() {
+            Outbound::ShowAlert { .. } => {}
+            o => panic!("ждал ShowAlert на неуспешной команде, {o:?}"),
+        }
     }
 
     #[tokio::test]

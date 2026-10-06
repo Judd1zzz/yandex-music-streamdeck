@@ -49,7 +49,8 @@ impl Action for Download {
             cx.show_alert().await;
             return;
         }
-        if ctl.oauth_token().await.or_else(|| cx.shared.token()).filter(|t| !t.is_empty()).is_none() {
+        if ctl.oauth_token().await.filter(|t| !t.is_empty()).is_none() {
+            tracing::warn!("скачивание: {}", crate::download::NO_CLIENT_TOKEN);
             self.busy.store(false, Ordering::SeqCst);
             cx.show_alert().await;
             return;

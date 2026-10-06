@@ -15,6 +15,10 @@ const PKG: &str = "ym-plugin";
 const PLUGIN_DIR_NAME: &str = "com.judd1.yandex_music.sdPlugin";
 const MAC_TARGETS: [&str; 2] = ["x86_64-apple-darwin", "aarch64-apple-darwin"];
 pub const LEGAL_FILES: [&str; 2] = ["LICENSE", "THIRD-PARTY-NOTICES.md"];
+pub const BRIDGE_MAC: &str = "ym-bridge.dylib";
+pub const BRIDGE_WIN: &str = "ym-bridge.dll";
+pub const BRIDGE_MAC_SIG: &str = "ym-bridge.dylib.sig";
+pub const BRIDGE_WIN_SIG: &str = "ym-bridge.dll.sig";
 
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref().unwrap_or("") {
@@ -54,6 +58,41 @@ fn bin_filename(os: &str) -> &'static str {
     } else {
         "ym-plugin"
     }
+}
+
+fn bridge_payloads(os: &str) -> &'static [&'static str] {
+    match os {
+        "windows" => &[BRIDGE_WIN, BRIDGE_WIN_SIG],
+        "macos" => &[BRIDGE_MAC, BRIDGE_MAC_SIG],
+        _ => &[],
+    }
+}
+
+fn present_bridge_payloads(bin_dir: &Path, names: &[&'static str]) -> Vec<&'static str> {
+    names.iter().copied().filter(|n| bin_dir.join(n).is_file()).collect()
+}
+
+fn bridge_binds_plugin(bridge: &Path, plugin: &Path) -> Result<bool> {
+    let plugin_bytes = std::fs::read(plugin).with_context(|| format!("чтение {}", plugin.display()))?;
+    let hash = ym_model::dist::hex_lower(&Sha256::digest(&plugin_bytes));
+    let bridge_bytes = std::fs::read(bridge).with_context(|| format!("чтение {}", bridge.display()))?;
+    Ok(bridge_bytes.windows(hash.len()).any(|w| w == hash.as_bytes()))
+}
+
+fn ensure_bridge_binds(bridge_name: &str, bin_dir: &Path, plugin_name: &str) -> Result<()> {
+    let bridge = bin_dir.join(bridge_name);
+    if !bridge.is_file() {
+        return Ok(());
+    }
+    let plugin = bin_dir.join(plugin_name);
+    if !bridge_binds_plugin(&bridge, &plugin)? {
+        bail!(
+            "мост {bridge_name} в {} собран под другой плагин (во вшитом хеше нет SHA-256 текущего {plugin_name}) — \
+             пересоберите релиз через build_everything_with_bridge.sh, а не build_everything.sh",
+            bin_dir.display()
+        );
+    }
+    Ok(())
 }
 
 fn run(cmd: &mut Command) -> Result<()> {
@@ -153,7 +192,17 @@ fn package(os_arg: Option<&str>) -> Result<()> {
     std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
     let zip_path = release.join(ym_model::dist::release_zip_name(&os, env!("CARGO_PKG_VERSION")));
 
-    let entries = write_release_zip(&zip_path, &plugin_dir(), &repo_root(), &[bin], build_timestamp())?;
+    let bridge_bin = match os.as_str() {
+        "windows" => BRIDGE_WIN,
+        "macos" => BRIDGE_MAC,
+        _ => "",
+    };
+    if !bridge_bin.is_empty() {
+        ensure_bridge_binds(bridge_bin, &plugin_bin_dir(), bin)?;
+    }
+    let mut bins = present_bridge_payloads(&plugin_bin_dir(), bridge_payloads(&os));
+    bins.push(bin);
+    let entries = write_release_zip(&zip_path, &plugin_dir(), &repo_root(), &bins, build_timestamp())?;
     print_package_summary(&format!("{} — {os}", plugin_display_name(&plugin_dir())), &zip_path, &entries);
     println!("xtask: релиз → {}", zip_path.display());
     Ok(())
@@ -170,7 +219,12 @@ fn store() -> Result<()> {
     let release = repo_root().join("release");
     std::fs::create_dir_all(&release).with_context(|| format!("создание {}", release.display()))?;
     let out = release.join(PLUGIN_DIR_NAME);
-    let entries = write_release_zip(&out, &plugin, &repo_root(), &["ym-plugin", "ym-plugin.exe"], build_timestamp())?;
+    ensure_bridge_binds(BRIDGE_MAC, &plugin.join("bin"), "ym-plugin")?;
+    ensure_bridge_binds(BRIDGE_WIN, &plugin.join("bin"), "ym-plugin.exe")?;
+    let mut bins =
+        present_bridge_payloads(&plugin.join("bin"), &[BRIDGE_MAC, BRIDGE_MAC_SIG, BRIDGE_WIN, BRIDGE_WIN_SIG]);
+    bins.extend(["ym-plugin", "ym-plugin.exe"]);
+    let entries = write_release_zip(&out, &plugin, &repo_root(), &bins, build_timestamp())?;
     print_package_summary(&format!("{} — StreamDock Store", plugin_display_name(&plugin)), &out, &entries);
     println!("xtask: store-пакет (zip с обёрткой, оба бинаря) → {}", out.display());
     Ok(())
@@ -389,6 +443,44 @@ mod tests {
         assert_eq!(bin_filename("macos"), "ym-plugin");
         assert_eq!(bin_filename("windows"), "ym-plugin.exe");
         assert_eq!(bin_filename("linux"), "ym-plugin");
+    }
+
+    #[test]
+    fn present_bridge_payloads_filters_by_existence() -> Result<()> {
+        let tmp = std::env::temp_dir().join(format!("xtask_bridge_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp)?;
+        assert!(present_bridge_payloads(&tmp, &[BRIDGE_MAC, BRIDGE_WIN]).is_empty());
+        std::fs::write(tmp.join(BRIDGE_MAC), b"x")?;
+        assert_eq!(present_bridge_payloads(&tmp, &[BRIDGE_MAC, BRIDGE_WIN]), vec![BRIDGE_MAC]);
+        std::fs::write(tmp.join(BRIDGE_WIN), b"x")?;
+        assert_eq!(present_bridge_payloads(&tmp, &[BRIDGE_MAC, BRIDGE_WIN]), vec![BRIDGE_MAC, BRIDGE_WIN]);
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn ensure_bridge_binds_refuses_bridge_built_for_another_plugin() -> Result<()> {
+        let tmp = std::env::temp_dir().join(format!("xtask_bind_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp)?;
+
+        std::fs::write(tmp.join("ym-plugin"), b"PLUGIN-BYTES-V2")?;
+        let hash = ym_model::dist::hex_lower(&Sha256::digest(b"PLUGIN-BYTES-V2"));
+
+        std::fs::write(tmp.join(BRIDGE_MAC), format!("MACHO..{hash}..rest").into_bytes())?;
+        assert!(ensure_bridge_binds(BRIDGE_MAC, &tmp, "ym-plugin").is_ok());
+
+        let other = ym_model::dist::hex_lower(&Sha256::digest(b"OLD-PLUGIN-BYTES"));
+        std::fs::write(tmp.join(BRIDGE_MAC), format!("MACHO..{other}..rest").into_bytes())?;
+        let err = ensure_bridge_binds(BRIDGE_MAC, &tmp, "ym-plugin").unwrap_err();
+        assert!(format!("{err:#}").contains("другой плагин"), "ошибка должна назвать чужой мост: {err:#}");
+
+        std::fs::remove_file(tmp.join(BRIDGE_MAC))?;
+        assert!(ensure_bridge_binds(BRIDGE_MAC, &tmp, "ym-plugin").is_ok(), "отсутствующий мост не ошибка");
+
+        std::fs::remove_dir_all(&tmp).ok();
+        Ok(())
     }
 
     #[test]

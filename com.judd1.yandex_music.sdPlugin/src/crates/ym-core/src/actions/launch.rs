@@ -76,14 +76,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn launch_kicks_even_in_ynison_mode() {
-        let (shared, mut krx) = shared_with_kick(false);
-        let (ctx, _rx) = make_ctx_with(shared, ynison_settings());
-        LaunchClient.on_key_down(&ctx).await;
-        assert!(krx.try_recv().is_ok(), "режим управления не влияет на лаунчер");
-    }
-
-    #[tokio::test]
     async fn launch_dial_down_mirrors_key_down() {
         let (shared, mut krx) = shared_with_kick(false);
         let (ctx, mut rx) = make_ctx(shared);

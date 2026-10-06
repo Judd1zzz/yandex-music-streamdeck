@@ -1,3 +1,4 @@
+pub mod attest;
 pub mod dist;
 pub mod media;
 pub mod ports;
@@ -11,8 +12,8 @@ pub use media::{DislikeData, LikeData, MediaState, PlaybackData, RepeatData, Shu
 pub use ports::{Downloader, MediaController, StubController, StubDownloader, VolumeAction};
 pub use result::ActionResult;
 pub use settings::{
-    ControlMode, DiscordConfig, GlobalSettings, LaunchConfig, PluginSettings, KNOB_STEP_DEFAULT,
-    KNOB_STEP_MAX, KNOB_STEP_MIN,
+    BetterInfoConfig, ControlMode, DiscordConfig, GlobalSettings, LaunchConfig, PluginSettings, VideoCoverConfig,
+    KNOB_STEP_DEFAULT, KNOB_STEP_MAX, KNOB_STEP_MIN,
 };
 pub use state_event::{StateEvent, StateKind};
 pub use update::UpdateCheck;

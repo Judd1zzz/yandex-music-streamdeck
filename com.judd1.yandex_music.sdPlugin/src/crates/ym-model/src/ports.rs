@@ -16,10 +16,6 @@ pub enum VolumeAction {
 pub trait MediaController: Send + Sync {
     fn is_connected(&self) -> bool;
     fn snapshot(&self) -> MediaState;
-    fn set_local_port(&self, _port: u16) {}
-    fn active_port(&self) -> Option<u16> {
-        None
-    }
     async fn oauth_token(&self) -> Option<String> {
         None
     }
@@ -31,6 +27,9 @@ pub trait MediaController: Send + Sync {
     async fn toggle_shuffle(&self) -> ActionResult;
     async fn toggle_repeat(&self) -> ActionResult;
     async fn change_volume(&self, action: VolumeAction) -> ActionResult;
+    fn set_video_cover(&self, _cfg: crate::VideoCoverConfig) {}
+    fn set_better_info(&self, _cfg: crate::BetterInfoConfig) {}
+    fn set_ynison_device(&self, _on: bool) {}
 }
 
 pub struct StubController;

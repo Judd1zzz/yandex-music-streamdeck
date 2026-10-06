@@ -307,15 +307,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn info_press_playpause_ynison_alerts() {
-        let (shared, calls) = MockController { connected: false, state: MediaState::default(), calls: Default::default() }.shared();
-        let (ctx, mut rx) = make_ctx_with(shared, ynison_settings());
-        Info::default().on_key_down(&ctx).await;
-        assert!(matches!(rx.recv().await.unwrap(), Outbound::ShowAlert { .. }));
-        assert!(calls.lock().unwrap().is_empty());
-    }
-
-    #[tokio::test]
     async fn info_on_state_playback_skipped_without_timecodes() {
         let (shared, _c) = MockController { connected: true, state: track_state("Song"), calls: Default::default() }.shared();
         let (ctx, mut rx) = make_ctx(shared.clone());
